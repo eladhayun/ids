@@ -12,11 +12,16 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+const (
+	statusHealthy   = "healthy"
+	statusUnhealthy = "unhealthy"
+)
+
 // HealthHandler handles basic health check requests
 func HealthHandler(version string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		response := models.HealthResponse{
-			Status:    "healthy",
+			Status:    statusHealthy,
 			Timestamp: time.Now().UTC(),
 			Version:   version,
 		}
@@ -37,7 +42,7 @@ func DBHealthHandler(db *sqlx.DB) echo.HandlerFunc {
 
 		// Check if database connection exists
 		if db == nil {
-			response.Status = "unhealthy"
+			response.Status = statusUnhealthy
 			response.Error = "Database connection not initialized"
 			return c.JSON(http.StatusServiceUnavailable, response)
 		}
@@ -52,7 +57,7 @@ func DBHealthHandler(db *sqlx.DB) echo.HandlerFunc {
 		response.Latency = latency
 
 		if err != nil {
-			response.Status = "unhealthy"
+			response.Status = statusUnhealthy
 			response.Error = err.Error()
 			return c.JSON(http.StatusServiceUnavailable, response)
 		}
@@ -61,12 +66,12 @@ func DBHealthHandler(db *sqlx.DB) echo.HandlerFunc {
 		var count int
 		err = db.Get(&count, "SELECT 1")
 		if err != nil {
-			response.Status = "unhealthy"
+			response.Status = statusUnhealthy
 			response.Error = fmt.Sprintf("Database query failed: %v", err)
 			return c.JSON(http.StatusServiceUnavailable, response)
 		}
 
-		response.Status = "healthy"
+		response.Status = statusHealthy
 		response.Connected = true
 
 		return c.JSON(http.StatusOK, response)
