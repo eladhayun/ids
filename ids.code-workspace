@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"name": "ids",
+			"path": "."
+		},
+		{
+			"name": "gitops",
+			"path": "../gitops"
+		}
+	],
+	"settings": {}
+}
