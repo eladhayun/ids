@@ -35,11 +35,6 @@ jobs:
       - name: Install dependencies
         run: go mod download
 
-      - name: Install golangci-lint
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.60.3
-          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-
       - name: Format code check
         run: |
           if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
@@ -48,8 +43,13 @@ jobs:
             exit 1
           fi
 
-      - name: Run linter
-        run: golangci-lint run
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run staticcheck
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          staticcheck ./...
 
       - name: Run tests
         run: go test -v ./...
