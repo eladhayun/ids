@@ -80,6 +80,9 @@ func (s *Server) setupRoutes() {
 
 	// Root endpoint
 	s.echo.GET("/", handlers.RootHandler(s.config.Version))
+
+	// Products endpoint with pagination
+	s.echo.GET("/products", handlers.ProductsHandler(s.db))
 }
 
 // Start starts the HTTP server
