@@ -85,6 +85,40 @@ docker-build:
 	@echo "Building Docker image..."
 	@docker build -t ids-api .
 
+# Database management
+db-start:
+	@echo "Starting MariaDB container..."
+	@docker stop mariadb 2>/dev/null || true
+	@docker rm mariadb 2>/dev/null || true
+	@docker run -d \
+		--name mariadb \
+		-e MYSQL_ROOT_PASSWORD=my-secret-pw \
+		-e MYSQL_DATABASE=isrealde_wp654 \
+		-v $(PWD)/isrealde_wp654.sql:/docker-entrypoint-initdb.d/dump.sql \
+		-p 3306:3306 \
+		mariadb:10.6.23
+	@echo "MariaDB container started on port 3306"
+
+db-stop:
+	@echo "Stopping MariaDB container..."
+	@docker stop mariadb || true
+	@echo "MariaDB container stopped"
+
+db-remove:
+	@echo "Removing MariaDB container..."
+	@docker rm mariadb || true
+	@echo "MariaDB container removed"
+
+db-restart: db-stop db-remove db-start
+
+db-status:
+	@echo "Checking MariaDB container status..."
+	@docker ps -f name=mariadb
+
+db-logs:
+	@echo "Showing MariaDB container logs..."
+	@docker logs mariadb
+
 # Help
 help:
 	@echo "Available commands:"
@@ -101,4 +135,10 @@ help:
 	@echo "  lint         - Lint the code"
 	@echo "  build-prod   - Build for production"
 	@echo "  docker-build - Build Docker image"
+	@echo "  db-start     - Start MariaDB container"
+	@echo "  db-stop      - Stop MariaDB container"
+	@echo "  db-remove    - Remove MariaDB container"
+	@echo "  db-restart   - Restart MariaDB container"
+	@echo "  db-status    - Check MariaDB container status"
+	@echo "  db-logs      - Show MariaDB container logs"
 	@echo "  help         - Show this help message"
