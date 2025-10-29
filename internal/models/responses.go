@@ -25,6 +25,7 @@ type DBHealthResponse struct {
 type Product struct {
 	ID               int     `json:"id" db:"ID" example:"1"`                                        // Product ID
 	PostTitle        string  `json:"post_title" db:"post_title" example:"Sample Product"`           // Product title
+	PostName         *string `json:"post_name" db:"post_name" example:"sample-product"`             // Product URL slug
 	Description      *string `json:"description" db:"description" example:"Product description"`    // Product description
 	ShortDescription *string `json:"short_description" db:"short_description" example:"Short desc"` // Short description
 	SKU              *string `json:"sku" db:"sku" example:"SKU123"`                                 // Product SKU
@@ -69,6 +70,7 @@ type ChatRequest struct {
 // ChatResponse represents the response from the chat endpoint
 // @Description Chat response payload
 type ChatResponse struct {
-	Response string `json:"response" example:"Hello! How can I help you today?"` // AI response message
-	Error    string `json:"error,omitempty" example:""`                          // Error message if any
+	Response string            `json:"response" example:"Hello! How can I help you today?"` // AI response message
+	Error    string            `json:"error,omitempty" example:""`                          // Error message if any
+	Products map[string]string `json:"products,omitempty"`                                  // Product name to SKU mapping for link generation
 }

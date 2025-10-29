@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"ids/internal/database"
 	"ids/internal/models"
 
 	"github.com/jmoiron/sqlx"
@@ -79,12 +80,12 @@ func DBHealthHandler(db *sqlx.DB) echo.HandlerFunc {
 			return c.JSON(http.StatusServiceUnavailable, response)
 		}
 
-		// Test a simple query to ensure database is readable
+		// Test a simple query to ensure database is readable using read-only transaction
 		var count int
-		err = db.Get(&count, "SELECT 1")
+		err = database.ExecuteReadOnlyQuerySingle(ctx, db, &count, "SELECT 1")
 		if err != nil {
 			response.Status = statusUnhealthy
-			response.Error = fmt.Sprintf("Database query failed: %v", err)
+			response.Error = fmt.Sprintf("Database read-only query failed: %v", err)
 			return c.JSON(http.StatusServiceUnavailable, response)
 		}
 
@@ -157,7 +158,7 @@ func ProductsHandler(db *sqlx.DB) echo.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		err := db.GetContext(ctx, &totalCount, countQuery)
+		err := database.ExecuteReadOnlyQuerySingle(ctx, db, &totalCount, countQuery)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": fmt.Sprintf("Failed to count products: %v", err),
@@ -169,6 +170,7 @@ func ProductsHandler(db *sqlx.DB) echo.HandlerFunc {
 			SELECT
 			  p.ID,
 			  p.post_title,
+			  p.post_name,
 			  p.post_content   AS description,
 			  p.post_excerpt   AS short_description,
 			  l.sku,
@@ -189,14 +191,14 @@ func ProductsHandler(db *sqlx.DB) echo.HandlerFunc {
 			WHERE p.post_type = 'product'
 			  AND p.post_status IN ('publish','private')
 			GROUP BY
-			  p.ID, p.post_title, p.post_content, p.post_excerpt,
+			  p.ID, p.post_title, p.post_name, p.post_content, p.post_excerpt,
 			  l.sku, l.min_price, l.max_price, l.stock_status, l.stock_quantity
 			ORDER BY p.ID
 			LIMIT ? OFFSET ?
 		`
 
 		var products []models.Product
-		err = db.SelectContext(ctx, &products, query, limit, offset)
+		err = database.ExecuteReadOnlyQuery(ctx, db, &products, query, limit, offset)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": fmt.Sprintf("Failed to fetch products: %v", err),

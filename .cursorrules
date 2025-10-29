@@ -83,6 +83,11 @@ Remember: Swagger documentation is critical for API usability and must be kept c
 - Use MCP server or kubectl commands with jshipster context
 - GitOps repository contains Kubernetes manifests for deployment
 
+### Database Interaction
+- Always use MariaDB CLI tool when interacting with the database
+- Use command: `mariadb -h localhost -P 3306 -u root -p'my-secret-pw' -D isrealde_wp654 --ssl=false`
+- Database contains WordPress/WooCommerce product data with post_name (URL slug), post_title, and sku fields
+
 ### Documentation Requirements
 - Swagger documentation must be kept current
 - All API endpoints need proper annotations

@@ -4,6 +4,7 @@ class ChatBot {
     this.isLoading = false;
     this.retryCount = 0;
     this.maxRetries = 3;
+    this.products = {}; // Product name -> URL slug mapping for link generation
 
     this.initializeElements();
     this.attachEventListeners();
@@ -128,7 +129,7 @@ class ChatBot {
       this.hideTypingIndicator();
 
       // Add bot response
-      this.addMessage('assistant', response);
+      this.addMessage('assistant', response.content, response.products);
 
       // Reset retry count on success
       this.retryCount = 0;
@@ -139,7 +140,12 @@ class ChatBot {
     }
   }
 
-  addMessage(role, content) {
+  addMessage(role, content, products = null) {
+    // Update product metadata if provided
+    if (products && typeof products === 'object') {
+      Object.assign(this.products, products);
+    }
+
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role === 'user' ? 'user-message' : 'bot-message'}`;
 
@@ -171,7 +177,7 @@ class ChatBot {
       // For user messages, just escape HTML
       messageContent.innerHTML = `<p>${this.escapeHtml(content)}</p>`;
     } else {
-      // For bot messages, render as markdown and process product links
+      // For bot messages, process product links and render as markdown
       const processedContent = this.processProductLinks(content);
       const markdownContent = this.renderMarkdown(processedContent);
       messageContent.innerHTML = markdownContent;
@@ -217,7 +223,10 @@ class ChatBot {
       throw new Error(data.error);
     }
 
-    return data.response;
+    return {
+      content: data.response,
+      products: data.products || {}
+    };
   }
 
   handleError(error) {
@@ -273,6 +282,54 @@ class ChatBot {
     return div.innerHTML;
   }
 
+  // Process product links - convert product names to clickable links using URL slugs
+  processProductLinks(content) {
+    const storeDomain = 'https://israeldefensestore.com';
+    let processedContent = content;
+
+    // Process each product in our metadata
+    // Sort by length (longest first) to match longer product names before shorter ones
+    const sortedProducts = Object.entries(this.products).sort((a, b) => b[0].length - a[0].length);
+
+    for (const [productName, urlSlug] of sortedProducts) {
+      if (!urlSlug || urlSlug.trim() === '') {
+        continue;
+      }
+
+      // Create proper product URL using the URL slug
+      // Format: https://israeldefensestore.com/product/{url-slug}/
+      const productUrl = `${storeDomain}/product/${encodeURIComponent(urlSlug)}/`;
+
+      // Match product name in the text (case-insensitive, whole word matching)
+      // Use a regex that matches the product name but not if it's already inside a link
+      // Escape the product name for regex, but allow flexible matching
+      const escapedName = this.escapeRegex(productName);
+      const regex = new RegExp(`\\b(${escapedName})(?![^\\[]*\\])`, 'gi');
+
+      processedContent = processedContent.replace(regex, (match, productNameMatch) => {
+        // Check if we're already inside a markdown link by looking backwards and forwards
+        const matchIndex = processedContent.indexOf(match);
+        const beforeMatch = processedContent.substring(Math.max(0, matchIndex - 50), matchIndex);
+        const afterMatch = processedContent.substring(matchIndex + match.length, matchIndex + match.length + 10);
+
+        // Skip if already inside a markdown link
+        if (beforeMatch.includes('[') || afterMatch.includes(']') || beforeMatch.includes('(') || afterMatch.includes(')')) {
+          return match;
+        }
+
+        // Create markdown link: [Product Name](URL)
+        return `[${productNameMatch}](${productUrl})`;
+      });
+    }
+
+    return processedContent;
+  }
+
+  // Escape special regex characters
+  escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
   // Render markdown content
   renderMarkdown(content) {
     if (typeof marked === 'undefined') {
@@ -295,29 +352,6 @@ class ChatBot {
     }
   }
 
-  // Process product links - convert product names to clickable links
-  processProductLinks(content) {
-    // This regex looks for product names that might be mentioned in the response
-    // and converts them to markdown links to the store
-    const storeDomain = 'https://israeldefensestore.com';
-
-    // Look for patterns that might be product names (capitalized words, possibly with numbers)
-    // This is a simple heuristic - in a real implementation, you might want to be more sophisticated
-    const productPattern = /\b([A-Z][a-zA-Z0-9\s\-&]+(?:Holster|Gun|Pistol|Rifle|Gear|Kit|System|Defense|Tactical|Military|Equipment|Accessory|Accessories)?)\b/g;
-
-    return content.replace(productPattern, (match, productName) => {
-      // Skip if it's already a link or if it's too short
-      if (match.includes('[') || match.includes('http') || productName.length < 3) {
-        return match;
-      }
-
-      // Create a search URL for the product
-      const searchQuery = encodeURIComponent(productName.trim());
-      const productUrl = `${storeDomain}/?s=${searchQuery}`;
-
-      return `[${productName}](${productUrl})`;
-    });
-  }
 }
 
 // Initialize the chat bot when the page loads

@@ -10,6 +10,7 @@ import (
 
 	"ids/internal/cache"
 	"ids/internal/config"
+	"ids/internal/database"
 	"ids/internal/models"
 	"ids/internal/utils"
 
@@ -88,7 +89,7 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache) echo.Handl
 		}
 
 		// Build conversation messages for OpenAI
-		messages := buildOpenAIMessages(req.Conversation, productData, detectedLang)
+		messages := buildOpenAIMessages(req.Conversation, productData.Context, detectedLang)
 
 		// Create chat completion request with retry logic
 		var resp openai.ChatCompletionResponse
@@ -143,6 +144,7 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache) echo.Handl
 
 		return c.JSON(http.StatusOK, models.ChatResponse{
 			Response: resp.Choices[0].Message.Content,
+			Products: productData.Products,
 		})
 	}
 }
@@ -215,8 +217,14 @@ func extractRelevantTags(conversation []models.ConversationMessage) []string {
 	return detectedTags
 }
 
+// productContextData holds both the context string and product metadata
+type productContextData struct {
+	Context  string
+	Products map[string]string // Product name -> SKU mapping
+}
+
 // getProductDataForContext fetches product data to provide context to the LLM (with caching and optional tag filtering)
-func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes int, filterTags []string) (string, error) {
+func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes int, filterTags []string) (*productContextData, error) {
 	// Create cache key based on filters
 	var cacheKey string
 	if len(filterTags) > 0 {
@@ -227,7 +235,7 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 
 	// Try to get from cache first
 	if cachedData, found := cache.Get(cacheKey); found {
-		if productData, ok := cachedData.(string); ok {
+		if productData, ok := cachedData.(*productContextData); ok {
 			return productData, nil
 		}
 	}
@@ -243,6 +251,7 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 			SELECT DISTINCT
 			  p.ID,
 			  p.post_title,
+			  p.post_name,
 			  p.post_content AS description,
 			  p.post_excerpt AS short_description,
 			  l.sku,
@@ -261,7 +270,7 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 			  AND p.post_status IN ('publish','private')
 			  AND t.name IN (` + strings.Repeat("?,", len(filterTags)-1) + `?)
 			GROUP BY
-			  p.ID, p.post_title, p.post_content, p.post_excerpt,
+			  p.ID, p.post_title, p.post_name, p.post_content, p.post_excerpt,
 			  l.sku, l.min_price, l.max_price, l.stock_status, l.stock_quantity
 			ORDER BY p.ID
 			LIMIT 20
@@ -276,6 +285,7 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 			SELECT
 			  p.ID,
 			  p.post_title,
+			  p.post_name,
 			  p.post_content AS description,
 			  p.post_excerpt AS short_description,
 			  l.sku,
@@ -296,7 +306,7 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 			WHERE p.post_type = 'product'
 			  AND p.post_status IN ('publish','private')
 			GROUP BY
-			  p.ID, p.post_title, p.post_content, p.post_excerpt,
+			  p.ID, p.post_title, p.post_name, p.post_content, p.post_excerpt,
 			  l.sku, l.min_price, l.max_price, l.stock_status, l.stock_quantity
 			ORDER BY p.ID
 			LIMIT 20
@@ -310,16 +320,18 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 
 	var err error
 	if len(filterTags) > 0 {
-		err = db.SelectContext(ctx, &products, query, args...)
+		err = database.ExecuteReadOnlyQuery(ctx, db, &products, query, args...)
 	} else {
-		err = db.SelectContext(ctx, &products, query)
+		err = database.ExecuteReadOnlyQuery(ctx, db, &products, query)
 	}
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	// Format product data as context string
+	// Format product data as context string and build product metadata map
 	var contextBuilder strings.Builder
+	productMetadata := make(map[string]string)
+
 	if len(filterTags) > 0 {
 		contextBuilder.WriteString(fmt.Sprintf("PRODUCTS (filtered by: %s):\n", strings.Join(filterTags, ", ")))
 	} else {
@@ -348,12 +360,29 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 		if product.Tags != nil {
 			contextBuilder.WriteString(fmt.Sprintf(" | Tags: %s", *product.Tags))
 		}
+
+		// Include SKU in context if available
+		if product.SKU != nil && *product.SKU != "" {
+			contextBuilder.WriteString(fmt.Sprintf(" | SKU: %s", *product.SKU))
+		}
+
+		// Store product name -> URL slug mapping for frontend
+		if product.PostName != nil && *product.PostName != "" {
+			productMetadata[product.PostTitle] = *product.PostName
+		} else if product.SKU != nil && *product.SKU != "" {
+			// Fallback to SKU if no post_name available
+			productMetadata[product.PostTitle] = *product.SKU
+		}
+
 		contextBuilder.WriteString("\n")
 	}
 
 	contextBuilder.WriteString("Only recommend in-stock products from this data.\n")
 
-	productData := contextBuilder.String()
+	productData := &productContextData{
+		Context:  contextBuilder.String(),
+		Products: productMetadata,
+	}
 
 	// Cache the result for the specified TTL
 	cache.Set(cacheKey, productData, time.Duration(cacheTTLMinutes)*time.Minute)
