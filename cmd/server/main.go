@@ -41,7 +41,7 @@ func main() {
 	docs.SwaggerInfo.Description = "This is the IDS API server with product management and AI chat functionality."
 	docs.SwaggerInfo.Version = "1.0"
 	docs.SwaggerInfo.Host = "localhost:8080"
-	docs.SwaggerInfo.BasePath = "/"
+	docs.SwaggerInfo.BasePath = "/api"
 
 	// Load configuration
 	cfg := config.Load()

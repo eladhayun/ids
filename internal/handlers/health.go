@@ -102,7 +102,7 @@ func DBHealthHandler(db *sqlx.DB) echo.HandlerFunc {
 // @Accept json
 // @Produce json
 // @Success 200 {object} map[string]string
-// @Router / [get]
+// @Router /api/ [get]
 func RootHandler(version string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]string{
@@ -123,7 +123,7 @@ func RootHandler(version string) echo.HandlerFunc {
 // @Success 200 {object} models.ProductsResponse
 // @Failure 503 {object} map[string]string
 // @Failure 500 {object} map[string]string
-// @Router /products [get]
+// @Router /api/products [get]
 func ProductsHandler(db *sqlx.DB) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Handle case where database connection is not available

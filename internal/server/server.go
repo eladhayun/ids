@@ -76,26 +76,23 @@ func (s *Server) Initialize() {
 
 // setupRoutes configures all the application routes
 func (s *Server) setupRoutes() {
-	// Serve static files
-	s.echo.Static("/", "static")
+	// API group with /api prefix
+	api := s.echo.Group("/api")
 
 	// Swagger documentation
 	s.echo.GET("/swagger/*", echoSwagger.WrapHandler)
 
-	// Health endpoint
+	// Health endpoints (keep at root level for monitoring)
 	s.echo.GET("/healthz", handlers.HealthHandler(s.config.Version))
-
-	// Database connectivity check endpoint
 	s.echo.GET("/healthz/db", handlers.DBHealthHandler(s.db))
 
-	// Root endpoint
-	s.echo.GET("/", handlers.RootHandler(s.config.Version))
+	// API endpoints under /api prefix
+	api.GET("/", handlers.RootHandler(s.config.Version))
+	api.GET("/products", handlers.ProductsHandler(s.db))
+	api.POST("/chat", handlers.ChatHandler(s.db, s.config, s.cache))
 
-	// Products endpoint with pagination
-	s.echo.GET("/products", handlers.ProductsHandler(s.db))
-
-	// Chat endpoint for chatbot functionality
-	s.echo.POST("/chat", handlers.ChatHandler(s.db, s.config, s.cache))
+	// Serve static files (this should be last to avoid conflicts)
+	s.echo.Static("/", "static")
 }
 
 // Start starts the HTTP server

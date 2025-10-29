@@ -160,7 +160,7 @@ definitions:
 info:
   contact: {}
 paths:
-  /:
+  /api/:
     get:
       consumes:
       - application/json
@@ -177,7 +177,7 @@ paths:
       summary: Root endpoint
       tags:
       - general
-  /chat:
+  /api/chat:
     post:
       consumes:
       - application/json
@@ -211,6 +211,39 @@ paths:
       summary: Chat with AI
       tags:
       - chat
+  /api/products:
+    get:
+      consumes:
+      - application/json
+      description: Get paginated list of products from the database
+      parameters:
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.ProductsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get products
+      tags:
+      - products
   /healthz:
     get:
       consumes:
@@ -245,37 +278,4 @@ paths:
       summary: Database health check
       tags:
       - health
-  /products:
-    get:
-      consumes:
-      - application/json
-      description: Get paginated list of products from the database
-      parameters:
-      - default: 1
-        description: Page number
-        in: query
-        name: page
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.ProductsResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "503":
-          description: Service Unavailable
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Get products
-      tags:
-      - products
 swagger: "2.0"

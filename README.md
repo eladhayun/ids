@@ -10,12 +10,16 @@ The API includes comprehensive Swagger/OpenAPI documentation that can be accesse
 
 ### Available Endpoints
 
-- **GET** `/` - Root endpoint with service information
+- **GET** `/` - Static UI (Support Bot interface)
 - **GET** `/healthz` - Basic health check
 - **GET** `/healthz/db` - Database health check
-- **GET** `/products` - Get paginated list of products
-- **POST** `/chat` - Chat with AI assistant
 - **GET** `/swagger/` - Swagger UI documentation
+
+#### API Endpoints (under `/api` prefix)
+
+- **GET** `/api/` - Root API endpoint with service information
+- **GET** `/api/products` - Get paginated list of products
+- **POST** `/api/chat` - Chat with AI assistant
 
 ### Generating Documentation
 
@@ -66,7 +70,7 @@ The chatbot API endpoint allows you to send conversation data to an AI assistant
 
 ## Endpoint
 
-**POST** `/chat`
+**POST** `/api/chat`
 
 ## Request Format
 
@@ -147,7 +151,7 @@ The chatbot functionality requires:
 ### Using curl
 
 ```bash
-curl -X POST http://localhost:8080/chat \
+curl -X POST http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "conversation": [

@@ -28,7 +28,7 @@ import (
 // @Failure 400 {object} models.ChatResponse
 // @Failure 500 {object} models.ChatResponse
 // @Failure 503 {object} models.ChatResponse
-// @Router /chat [post]
+// @Router /api/chat [post]
 func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Handle case where database connection is not available
