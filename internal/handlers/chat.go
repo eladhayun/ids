@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -89,23 +90,48 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache) echo.Handl
 		// Build conversation messages for OpenAI
 		messages := buildOpenAIMessages(req.Conversation, productData, detectedLang)
 
-		// Create chat completion request
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+		// Create chat completion request with retry logic
+		var resp openai.ChatCompletionResponse
+		var apiErr error
 
-		resp, err := client.CreateChatCompletion(
-			ctx,
-			openai.ChatCompletionRequest{
-				Model:       openai.GPT4o, // Using GPT-4o as GPT-5 is not available yet
-				Messages:    messages,
-				MaxTokens:   1000,
-				Temperature: 0.7,
-			},
-		)
+		maxRetries := 3
+		baseDelay := 1 * time.Second
 
-		if err != nil {
+		for attempt := 0; attempt < maxRetries; attempt++ {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.OpenAITimeout)*time.Second)
+
+			resp, apiErr = client.CreateChatCompletion(
+				ctx,
+				openai.ChatCompletionRequest{
+					Model:       openai.GPT4oMini, // Using GPT-4o-mini for faster, more cost-effective responses
+					Messages:    messages,
+					MaxTokens:   800, // Reduced from 1000 to speed up response
+					Temperature: 0.7,
+				},
+			)
+
+			cancel()
+
+			// If successful, break out of retry loop
+			if apiErr == nil {
+				break
+			}
+
+			// If this is the last attempt, return the error
+			if attempt == maxRetries-1 {
+				return c.JSON(http.StatusInternalServerError, models.ChatResponse{
+					Error: fmt.Sprintf("OpenAI API error after %d attempts: %v", maxRetries, apiErr),
+				})
+			}
+
+			// Calculate exponential backoff delay
+			delay := time.Duration(float64(baseDelay) * math.Pow(2, float64(attempt)))
+			time.Sleep(delay)
+		}
+
+		if apiErr != nil {
 			return c.JSON(http.StatusInternalServerError, models.ChatResponse{
-				Error: fmt.Sprintf("OpenAI API error: %v", err),
+				Error: fmt.Sprintf("OpenAI API error: %v", apiErr),
 			})
 		}
 
@@ -238,7 +264,7 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 			  p.ID, p.post_title, p.post_content, p.post_excerpt,
 			  l.sku, l.min_price, l.max_price, l.stock_status, l.stock_quantity
 			ORDER BY p.ID
-			LIMIT 50
+			LIMIT 20
 		`
 		// Add filter tags as query arguments
 		for _, tag := range filterTags {
@@ -273,7 +299,7 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 			  p.ID, p.post_title, p.post_content, p.post_excerpt,
 			  l.sku, l.min_price, l.max_price, l.stock_status, l.stock_quantity
 			ORDER BY p.ID
-			LIMIT 50
+			LIMIT 20
 		`
 		args = nil
 	}
@@ -295,44 +321,37 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 	// Format product data as context string
 	var contextBuilder strings.Builder
 	if len(filterTags) > 0 {
-		contextBuilder.WriteString(fmt.Sprintf("FILTERED PRODUCT DATABASE (filtered by tags: %s):\n", strings.Join(filterTags, ", ")))
+		contextBuilder.WriteString(fmt.Sprintf("PRODUCTS (filtered by: %s):\n", strings.Join(filterTags, ", ")))
 	} else {
-		contextBuilder.WriteString("ISRAEL DEFENSE STORE PRODUCT DATABASE:\n")
+		contextBuilder.WriteString("AVAILABLE PRODUCTS:\n")
 	}
-	contextBuilder.WriteString("The following products are available in our tactical gear store. ")
-	contextBuilder.WriteString("The 'Tags' column shows which product categories, attributes, and compatibilities each item belongs to:\n\n")
 
 	for i, product := range products {
-		if i >= 10 { // Limit to first 10 products for context
+		if i >= 3 { // Limit to first 3 products for context to reduce processing time
 			break
 		}
-		contextBuilder.WriteString(fmt.Sprintf("**%s**\n", product.PostTitle))
-		if product.ShortDescription != nil && *product.ShortDescription != "" {
-			contextBuilder.WriteString(fmt.Sprintf("Description: %s\n", *product.ShortDescription))
-		}
+		// Simplified product format to reduce tokens
+		contextBuilder.WriteString(fmt.Sprintf("**%s**", product.PostTitle))
+
 		if product.MinPrice != nil && product.MaxPrice != nil {
 			if *product.MinPrice == *product.MaxPrice {
-				contextBuilder.WriteString(fmt.Sprintf("Price: $%s\n", *product.MinPrice))
+				contextBuilder.WriteString(fmt.Sprintf(" - $%s", *product.MinPrice))
 			} else {
-				contextBuilder.WriteString(fmt.Sprintf("Price: $%s - $%s\n", *product.MinPrice, *product.MaxPrice))
+				contextBuilder.WriteString(fmt.Sprintf(" - $%s-$%s", *product.MinPrice, *product.MaxPrice))
 			}
 		}
-		if product.StockStatus != nil {
-			stockStatus := "In Stock"
-			if *product.StockStatus != "instock" {
-				stockStatus = "Out of Stock"
-			}
-			contextBuilder.WriteString(fmt.Sprintf("Availability: %s\n", stockStatus))
+
+		if product.StockStatus != nil && *product.StockStatus != "instock" {
+			contextBuilder.WriteString(" (Out of Stock)")
 		}
+
 		if product.Tags != nil {
-			contextBuilder.WriteString(fmt.Sprintf("Categories: %s\n", *product.Tags))
+			contextBuilder.WriteString(fmt.Sprintf(" | Tags: %s", *product.Tags))
 		}
 		contextBuilder.WriteString("\n")
 	}
 
-	contextBuilder.WriteString("IMPORTANT: Only recommend products from this database that are available in our store. ")
-	contextBuilder.WriteString("Always provide specific product details including pricing and stock status when making recommendations. ")
-	contextBuilder.WriteString("If a customer asks about products not in this database, politely explain that you can only recommend products from our current inventory.\n")
+	contextBuilder.WriteString("Only recommend in-stock products from this data.\n")
 
 	productData := contextBuilder.String()
 
@@ -344,116 +363,29 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 
 // getDatabaseMetadata returns the database metadata for AI context
 func getDatabaseMetadata() string {
-	return `DATABASE METADATA FOR ACCURATE RECOMMENDATIONS:
-
-PRODUCT CATEGORIES (155 total - use these for broad product filtering):
-- Gun Holsters (380 products) - Most popular category
-- Fobus (309 products) - Major brand
-- SALE (251 products) - Discounted items
-- Recoil Systems (230 products) - Recoil management
-- DPM (224 products) - Major brand
-- FAB Defense (217 products) - Major brand
-- Conversion Kits (161 products) - Weapon conversion
-- ORPAZ Defense (110 products) - Major brand
-
-PRODUCT TAGS (1,471 total - IMPORTANT: Tags represent product categories, attributes, and compatibilities):
-The tags column in the product data shows which categories, attributes, and compatibilities each product belongs to.
-Tags indicate product relationships such as:
-- Weapon compatibility (Glock, For Pistols, For Rifles)
-- Hand orientation (Right Hand, Left Hand)
-- Color options (Black, Od Green)
-- Holster types (OWB, IWB, Paddle, Belt Loop)
-- Material types (Polymer, Leather)
-- Brands (Fobus, DPM, FAB Defense, ORPAZ Defense)
-- Calibers (.40, .45, 9mm, .357, .223, .22)
-- Tactical features (Molle, Modular, Duty Holster, Drop Leg)
-
-Top Tags by Product Count:
-- Black (1,311 products) - Most common color
-- Right Hand (525 products) - Hand orientation
-- For Pistols (455 products) - Weapon compatibility
-- Od Green (397 products) - Color option
-- OWB (380 products) - Outside waistband holsters
-- Paddle (364 products) - Holster attachment type
-- Duty Holster (357 products) - Professional use
-- Glock (332 products) - Popular pistol brand
-- Polymer Holster (310 products) - Material type
-- Belt Loop (293 products) - Holster attachment
-- Molle (293 products) - Tactical attachment system
-- Left Hand (287 products) - Hand orientation
-- For Rifles (281 products) - Weapon compatibility
-- Thigh Rig / Drop Leg (275 products) - Holster style
-- Modular (274 products) - Configurable systems
-
-PRICING INFORMATION:
-- Price Range: $1.25 - $2,999.99
-- Average Price: $197.15
-- Most products are physical items (99.9%)
-- Stock Status: 90.4% in stock, 9.6% out of stock
-
-KEY BRANDS TO RECOMMEND:
-- Fobus, DPM, FAB Defense, ORPAZ Defense (major brands)
-- Focus on tactical gear, military equipment, gun accessories
-
-RECOMMENDATION RULES:
-1. ALWAYS check stock_status = 'instock' before recommending
-2. Use categories for broad product types (holsters, conversion kits, etc.)
-3. Use tags for specific attributes (color, hand orientation, weapon compatibility)
-4. Match customer needs to appropriate categories and tags
-5. Consider price range when making recommendations
-6. Only recommend products from the provided database context
-
-SEARCH STRATEGY:
-- Search by category first (Gun Holsters, Conversion Kits, etc.)
-- Filter by tags for specific needs (Glock, Right Hand, Black, etc.)
-- Check availability and pricing
-- Provide specific product details including SKU and stock status`
+	return `STORE INFO: Israel Defense Store - tactical gear & military equipment
+MAIN CATEGORIES: Gun Holsters, Fobus, DPM, FAB Defense, ORPAZ Defense, Conversion Kits
+KEY TAGS: Glock, Right/Left Hand, Black/Od Green, OWB/IWB, Polymer/Leather, Duty Holster
+PRICE RANGE: $1.25-$2,999.99 | 90% in stock
+RULES: Only recommend in-stock products from provided data. Use tags for compatibility.`
 }
 
 // buildOpenAIMessages converts conversation messages to OpenAI format
 func buildOpenAIMessages(conversation []models.ConversationMessage, productContext string, detectedLang utils.Language) []openai.ChatCompletionMessage {
 	// Create the main system prompt for tactical gear sales
-	systemPrompt := `You are a knowledgeable sales representative for Israel Defense Store (https://israeldefensestore.com), specializing in tactical gear and military equipment. Your role is to:
+	systemPrompt := `You are a sales rep for Israel Defense Store (israeldefensestore.com) specializing in tactical gear.
 
-1. Help customers find the perfect tactical gear products that match their specific needs
-2. Provide expert advice on tactical equipment, military gear, and defense products
-3. Only recommend products that are available in our store database
-4. Be professional, knowledgeable, and helpful while maintaining a sales focus
-5. Ask clarifying questions to better understand customer requirements
-6. Highlight product features, benefits, and specifications that matter to tactical gear users
-7. Suggest complementary products when appropriate
-8. Always direct customers to our store for purchases
+ROLE: Help customers find tactical gear products. Only recommend products from our database. Be professional and knowledgeable.
 
-CRITICAL: You MUST use the provided database metadata to make accurate recommendations. The metadata contains:
-- Product categories (155 total) for broad filtering
-- Product tags (1,471 total) - IMPORTANT: Tags represent product categories, attributes, and compatibilities that each product belongs to. Use tags to understand product relationships, compatibility, and attributes.
-- Pricing information and stock status
-- Key brands and product types
+RULES:
+- Only recommend in-stock products from provided data
+- Use product tags for compatibility (Glock, Right/Left Hand, Black/Od Green, OWB/IWB, etc.)
+- Check stock status before recommending
+- Provide pricing and availability details
+- Format responses with **bold** for product names
+- Use bullet points for lists
 
-When customers ask about products, you MUST:
-- Understand that the Tags column in product data shows which categories, attributes, and compatibilities the product belongs to
-- Use the database metadata to understand available categories and tags
-- Search through the provided product database context to find relevant items
-- Match customer needs to appropriate categories and tags from the metadata
-- Only suggest products that are actually available in our store (check stock_status)
-- Use the metadata to filter by specific attributes (Glock, Right Hand, Black, etc.)
-- When products are filtered by tags, pay attention to the tag-based filtering to understand what specific attributes were matched
-- Provide detailed information about product specifications, pricing, and availability
-- Explain how products meet the customer's tactical or military needs
-- Offer alternatives if the exact product isn't available
-- Be honest about stock status and pricing
-- Reference specific categories and tags from the metadata when making recommendations
-
-RESPONSE FORMATTING:
-- Format your responses using Markdown for better readability
-- Use **bold** for product names and important features
-- Use bullet points for lists of products or features
-- Use line breaks to separate different sections
-- Do NOT include SKU information in your responses - customers don't need this
-- When mentioning products, format them as: **[Product Name]** - [Description] - Price: [Price Range]
-- Use proper markdown formatting for better presentation
-
-Remember: You are representing Israel Defense Store, so maintain professionalism and focus on helping customers find the right tactical gear for their specific requirements. ALWAYS use the metadata to ensure accurate, relevant recommendations.`
+RESPONSE FORMAT: **[Product Name]** - [Description] - Price: [Price Range]`
 
 	// Add language instruction to the system prompt
 	languageInstruction := utils.GetLanguageInstruction(detectedLang)

@@ -19,6 +19,7 @@ type Config struct {
 	OpenAIKey       string
 	ProductCacheTTL int  // Cache TTL in minutes
 	WaitForTunnel   bool // Whether to wait for SSH tunnel to be ready
+	OpenAITimeout   int  // OpenAI API timeout in seconds
 }
 
 // Load initializes and returns application configuration
@@ -36,6 +37,7 @@ func Load() *Config {
 		OpenAIKey:       os.Getenv("OPENAI_API_KEY"),
 		ProductCacheTTL: getEnvInt("PRODUCT_CACHE_TTL", 10),  // Default 10 minutes
 		WaitForTunnel:   getEnvBool("WAIT_FOR_TUNNEL", true), // Default true for production safety
+		OpenAITimeout:   getEnvInt("OPENAI_TIMEOUT", 60),     // Default 60 seconds
 	}
 
 	return config
