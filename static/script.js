@@ -67,7 +67,7 @@ class ChatBot {
 
   async checkConnection() {
     try {
-      const response = await fetch('/healthz');
+      const response = await fetch('/api/healthz');
       if (response.ok) {
         this.updateStatus('connected', 'Connected');
       } else {
