@@ -237,7 +237,7 @@ Remember: You are representing Israel Defense Store, so maintain professionalism
 
 	// Add language instruction to the system prompt
 	languageInstruction := utils.GetLanguageInstruction(detectedLang)
-	
+
 	// Combine system prompt, product context, and language instruction
 	enhancedContext := systemPrompt + "\n\n" + productContext + "\n\n" + languageInstruction
 
