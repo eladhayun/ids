@@ -171,9 +171,9 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 
 	// Format product data as context string
 	var contextBuilder strings.Builder
-	contextBuilder.WriteString("Product Database Context:\n")
-	contextBuilder.WriteString("You are a helpful assistant that can answer questions about products in our database. ")
-	contextBuilder.WriteString("Here are some sample products to help you understand what's available:\n\n")
+	contextBuilder.WriteString("ISRAEL DEFENSE STORE PRODUCT DATABASE:\n")
+	contextBuilder.WriteString("The following products are available in our tactical gear store. ")
+	contextBuilder.WriteString("Use this information to recommend specific products to customers based on their needs:\n\n")
 
 	for i, product := range products {
 		if i >= 10 { // Limit to first 10 products for context
@@ -199,8 +199,9 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 		contextBuilder.WriteString("\n")
 	}
 
-	contextBuilder.WriteString("Please provide helpful, accurate answers about our products based on this information. ")
-	contextBuilder.WriteString("If you need more specific product details, let the user know that you can help them find specific products.\n")
+	contextBuilder.WriteString("IMPORTANT: Only recommend products from this database that are available in our store. ")
+	contextBuilder.WriteString("Always provide specific product details including SKU, pricing, and stock status when making recommendations. ")
+	contextBuilder.WriteString("If a customer asks about products not in this database, politely explain that you can only recommend products from our current inventory.\n")
 
 	productData := contextBuilder.String()
 
@@ -212,9 +213,33 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 
 // buildOpenAIMessages converts conversation messages to OpenAI format
 func buildOpenAIMessages(conversation []models.ConversationMessage, productContext string, detectedLang utils.Language) []openai.ChatCompletionMessage {
+	// Create the main system prompt for tactical gear sales
+	systemPrompt := `You are a knowledgeable sales representative for Israel Defense Store (https://israeldefensestore.com), specializing in tactical gear and military equipment. Your role is to:
+
+1. Help customers find the perfect tactical gear products that match their specific needs
+2. Provide expert advice on tactical equipment, military gear, and defense products
+3. Only recommend products that are available in our store database
+4. Be professional, knowledgeable, and helpful while maintaining a sales focus
+5. Ask clarifying questions to better understand customer requirements
+6. Highlight product features, benefits, and specifications that matter to tactical gear users
+7. Suggest complementary products when appropriate
+8. Always direct customers to our store for purchases
+
+When customers ask about products, you should:
+- Search through the provided product database context to find relevant items
+- Only suggest products that are actually available in our store
+- Provide detailed information about product specifications, pricing, and availability
+- Explain how products meet the customer's tactical or military needs
+- Offer alternatives if the exact product isn't available
+- Be honest about stock status and pricing
+
+Remember: You are representing Israel Defense Store, so maintain professionalism and focus on helping customers find the right tactical gear for their specific requirements.`
+
 	// Add language instruction to the system prompt
 	languageInstruction := utils.GetLanguageInstruction(detectedLang)
-	enhancedContext := productContext + "\n\n" + languageInstruction
+	
+	// Combine system prompt, product context, and language instruction
+	enhancedContext := systemPrompt + "\n\n" + productContext + "\n\n" + languageInstruction
 
 	messages := []openai.ChatCompletionMessage{
 		{
