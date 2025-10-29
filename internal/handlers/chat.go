@@ -60,8 +60,11 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache) echo.Handl
 			})
 		}
 
-		// Get product data from database to provide context (with caching)
-		productData, err := getProductDataForContext(db, cache, cfg.ProductCacheTTL)
+		// Extract relevant tags from conversation to filter products
+		relevantTags := extractRelevantTags(req.Conversation)
+
+		// Get product data from database to provide context (with caching and tag filtering)
+		productData, err := getProductDataForContext(db, cache, cfg.ProductCacheTTL, relevantTags)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, models.ChatResponse{
 				Error: fmt.Sprintf("Failed to fetch product data: %v", err),
@@ -118,9 +121,83 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache) echo.Handl
 	}
 }
 
-// getProductDataForContext fetches product data to provide context to the LLM (with caching)
-func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes int) (string, error) {
-	const cacheKey = "product_context_data"
+// extractRelevantTags analyzes conversation to find relevant product tags
+func extractRelevantTags(conversation []models.ConversationMessage) []string {
+	var allMessages strings.Builder
+	for _, msg := range conversation {
+		if strings.Contains(strings.ToLower(msg.Role), "user") {
+			allMessages.WriteString(msg.Message + " ")
+		}
+	}
+
+	conversationText := strings.ToLower(allMessages.String())
+	if conversationText == "" {
+		return nil
+	}
+
+	// Common tag keywords and their variations (mapped to database tag names)
+	tagKeywords := map[string][]string{
+		"Glock":                {"glock", "glock 17", "glock 19", "glock 21", "glock 22", "glock 26", "glock 30", "glock 36", "glock 37", "glock 45"},
+		"Right Hand":           {"right hand", "right-handed", "righty", "right"},
+		"Left Hand":            {"left hand", "left-handed", "lefty", "left"},
+		"Black":                {"black", "black color"},
+		"Od Green":             {"od green", "olive drab", "green"},
+		"For Pistols":          {"pistol", "pistols", "handgun", "handguns", "for pistol"},
+		"For Rifles":           {"rifle", "rifles", "long gun", "for rifle"},
+		"OWB":                  {"owb", "outside waistband", "outside the waistband"},
+		"IWB":                  {"iwb", "inside waistband", "inside the waistband"},
+		"Paddle":               {"paddle", "paddle holster"},
+		"Belt Loop":            {"belt loop", "belt loops"},
+		"Molle":                {"molle", "molle compatible"},
+		"Duty Holster":         {"duty holster", "duty", "professional"},
+		"Polymer Holster":      {"polymer", "plastic", "polymer holster"},
+		"Leather":              {"leather"},
+		"Modular":              {"modular", "modular system"},
+		"Thigh Rig / Drop Leg": {"drop leg", "thigh rig", "drop leg holster"},
+		"Fobus":                {"fobus"},
+		"DPM":                  {"dpm"},
+		"FAB Defense":          {"fab defense", "fab"},
+		"ORPAZ Defense":        {"orpaz", "orpaz defense"},
+		".40 Cal":              {".40", ".40 cal", "40 cal", "40 caliber"},
+		".45 Cal":              {".45", ".45 cal", "45 cal", "45 caliber", ".45 acp"},
+		"9mm":                  {"9mm", "9 mm"},
+		".357":                 {".357", "357"},
+		".223":                 {".223", "223"},
+		".22 Cal":              {".22", ".22 cal", "22 cal"},
+	}
+
+	var detectedTags []string
+	for tagName, keywords := range tagKeywords {
+		for _, keyword := range keywords {
+			if strings.Contains(conversationText, keyword) {
+				// Check if tag already added
+				found := false
+				for _, existingTag := range detectedTags {
+					if existingTag == tagName {
+						found = true
+						break
+					}
+				}
+				if !found {
+					detectedTags = append(detectedTags, tagName)
+				}
+				break
+			}
+		}
+	}
+
+	return detectedTags
+}
+
+// getProductDataForContext fetches product data to provide context to the LLM (with caching and optional tag filtering)
+func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes int, filterTags []string) (string, error) {
+	// Create cache key based on filters
+	var cacheKey string
+	if len(filterTags) > 0 {
+		cacheKey = fmt.Sprintf("product_context_data_filtered_%s", strings.Join(filterTags, "_"))
+	} else {
+		cacheKey = "product_context_data"
+	}
 
 	// Try to get from cache first
 	if cachedData, found := cache.Get(cacheKey); found {
@@ -130,50 +207,100 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 	}
 
 	// Cache miss or invalid data, fetch from database
-	query := `
-		SELECT
-		  p.ID,
-		  p.post_title,
-		  p.post_content AS description,
-		  p.post_excerpt AS short_description,
-		  l.sku,
-		  l.min_price,
-		  l.max_price,
-		  l.stock_status,
-		  l.stock_quantity,
-		  GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS tags
-		FROM wpjr_wc_product_meta_lookup l
-		JOIN wpjr_posts p ON p.ID = l.product_id
-		LEFT JOIN wpjr_term_relationships tr
-		  ON tr.object_id = p.ID
-		LEFT JOIN wpjr_term_taxonomy tt
-		  ON tt.term_taxonomy_id = tr.term_taxonomy_id
-		  AND tt.taxonomy = 'product_tag'
-		LEFT JOIN wpjr_terms t
-		  ON t.term_id = tt.term_id
-		WHERE p.post_type = 'product'
-		  AND p.post_status IN ('publish','private')
-		GROUP BY
-		  p.ID, p.post_title, p.post_content, p.post_excerpt,
-		  l.sku, l.min_price, l.max_price, l.stock_status, l.stock_quantity
-		ORDER BY p.ID
-		LIMIT 50
-	`
+	// Build query with optional tag filtering
+	var query string
+	var args []interface{}
+
+	if len(filterTags) > 0 {
+		// Query with tag filtering - products must have at least one matching tag
+		query = `
+			SELECT DISTINCT
+			  p.ID,
+			  p.post_title,
+			  p.post_content AS description,
+			  p.post_excerpt AS short_description,
+			  l.sku,
+			  l.min_price,
+			  l.max_price,
+			  l.stock_status,
+			  l.stock_quantity,
+			  GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS tags
+			FROM wpjr_wc_product_meta_lookup l
+			JOIN wpjr_posts p ON p.ID = l.product_id
+			JOIN wpjr_term_relationships tr ON tr.object_id = p.ID
+			JOIN wpjr_term_taxonomy tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+			  AND tt.taxonomy = 'product_tag'
+			JOIN wpjr_terms t ON t.term_id = tt.term_id
+			WHERE p.post_type = 'product'
+			  AND p.post_status IN ('publish','private')
+			  AND t.name IN (` + strings.Repeat("?,", len(filterTags)-1) + `?)
+			GROUP BY
+			  p.ID, p.post_title, p.post_content, p.post_excerpt,
+			  l.sku, l.min_price, l.max_price, l.stock_status, l.stock_quantity
+			ORDER BY p.ID
+			LIMIT 50
+		`
+		// Add filter tags as query arguments
+		for _, tag := range filterTags {
+			args = append(args, tag)
+		}
+	} else {
+		// Query without tag filtering - get all products
+		query = `
+			SELECT
+			  p.ID,
+			  p.post_title,
+			  p.post_content AS description,
+			  p.post_excerpt AS short_description,
+			  l.sku,
+			  l.min_price,
+			  l.max_price,
+			  l.stock_status,
+			  l.stock_quantity,
+			  GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS tags
+			FROM wpjr_wc_product_meta_lookup l
+			JOIN wpjr_posts p ON p.ID = l.product_id
+			LEFT JOIN wpjr_term_relationships tr
+			  ON tr.object_id = p.ID
+			LEFT JOIN wpjr_term_taxonomy tt
+			  ON tt.term_taxonomy_id = tr.term_taxonomy_id
+			  AND tt.taxonomy = 'product_tag'
+			LEFT JOIN wpjr_terms t
+			  ON t.term_id = tt.term_id
+			WHERE p.post_type = 'product'
+			  AND p.post_status IN ('publish','private')
+			GROUP BY
+			  p.ID, p.post_title, p.post_content, p.post_excerpt,
+			  l.sku, l.min_price, l.max_price, l.stock_status, l.stock_quantity
+			ORDER BY p.ID
+			LIMIT 50
+		`
+		args = nil
+	}
 
 	var products []models.Product
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	err := db.SelectContext(ctx, &products, query)
+	var err error
+	if len(filterTags) > 0 {
+		err = db.SelectContext(ctx, &products, query, args...)
+	} else {
+		err = db.SelectContext(ctx, &products, query)
+	}
 	if err != nil {
 		return "", err
 	}
 
 	// Format product data as context string
 	var contextBuilder strings.Builder
-	contextBuilder.WriteString("ISRAEL DEFENSE STORE PRODUCT DATABASE:\n")
+	if len(filterTags) > 0 {
+		contextBuilder.WriteString(fmt.Sprintf("FILTERED PRODUCT DATABASE (filtered by tags: %s):\n", strings.Join(filterTags, ", ")))
+	} else {
+		contextBuilder.WriteString("ISRAEL DEFENSE STORE PRODUCT DATABASE:\n")
+	}
 	contextBuilder.WriteString("The following products are available in our tactical gear store. ")
-	contextBuilder.WriteString("Use this information to recommend specific products to customers based on their needs:\n\n")
+	contextBuilder.WriteString("The 'Tags' column shows which product categories, attributes, and compatibilities each item belongs to:\n\n")
 
 	for i, product := range products {
 		if i >= 10 { // Limit to first 10 products for context
@@ -194,7 +321,7 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 			contextBuilder.WriteString(fmt.Sprintf("Stock Status: %s\n", *product.StockStatus))
 		}
 		if product.Tags != nil {
-			contextBuilder.WriteString(fmt.Sprintf("Tags: %s\n", *product.Tags))
+			contextBuilder.WriteString(fmt.Sprintf("Product Categories/Attributes/Tags: %s\n", *product.Tags))
 		}
 		contextBuilder.WriteString("\n")
 	}
@@ -211,6 +338,75 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 	return productData, nil
 }
 
+// getDatabaseMetadata returns the database metadata for AI context
+func getDatabaseMetadata() string {
+	return `DATABASE METADATA FOR ACCURATE RECOMMENDATIONS:
+
+PRODUCT CATEGORIES (155 total - use these for broad product filtering):
+- Gun Holsters (380 products) - Most popular category
+- Fobus (309 products) - Major brand
+- SALE (251 products) - Discounted items
+- Recoil Systems (230 products) - Recoil management
+- DPM (224 products) - Major brand
+- FAB Defense (217 products) - Major brand
+- Conversion Kits (161 products) - Weapon conversion
+- ORPAZ Defense (110 products) - Major brand
+
+PRODUCT TAGS (1,471 total - IMPORTANT: Tags represent product categories, attributes, and compatibilities):
+The tags column in the product data shows which categories, attributes, and compatibilities each product belongs to.
+Tags indicate product relationships such as:
+- Weapon compatibility (Glock, For Pistols, For Rifles)
+- Hand orientation (Right Hand, Left Hand)
+- Color options (Black, Od Green)
+- Holster types (OWB, IWB, Paddle, Belt Loop)
+- Material types (Polymer, Leather)
+- Brands (Fobus, DPM, FAB Defense, ORPAZ Defense)
+- Calibers (.40, .45, 9mm, .357, .223, .22)
+- Tactical features (Molle, Modular, Duty Holster, Drop Leg)
+
+Top Tags by Product Count:
+- Black (1,311 products) - Most common color
+- Right Hand (525 products) - Hand orientation
+- For Pistols (455 products) - Weapon compatibility
+- Od Green (397 products) - Color option
+- OWB (380 products) - Outside waistband holsters
+- Paddle (364 products) - Holster attachment type
+- Duty Holster (357 products) - Professional use
+- Glock (332 products) - Popular pistol brand
+- Polymer Holster (310 products) - Material type
+- Belt Loop (293 products) - Holster attachment
+- Molle (293 products) - Tactical attachment system
+- Left Hand (287 products) - Hand orientation
+- For Rifles (281 products) - Weapon compatibility
+- Thigh Rig / Drop Leg (275 products) - Holster style
+- Modular (274 products) - Configurable systems
+
+PRICING INFORMATION:
+- Price Range: $1.25 - $2,999.99
+- Average Price: $197.15
+- Most products are physical items (99.9%)
+- Stock Status: 90.4% in stock, 9.6% out of stock
+
+KEY BRANDS TO RECOMMEND:
+- Fobus, DPM, FAB Defense, ORPAZ Defense (major brands)
+- Focus on tactical gear, military equipment, gun accessories
+
+RECOMMENDATION RULES:
+1. ALWAYS check stock_status = 'instock' before recommending
+2. Use categories for broad product types (holsters, conversion kits, etc.)
+3. Use tags for specific attributes (color, hand orientation, weapon compatibility)
+4. Match customer needs to appropriate categories and tags
+5. Consider price range when making recommendations
+6. Use SKU for exact product identification
+7. Only recommend products from the provided database context
+
+SEARCH STRATEGY:
+- Search by category first (Gun Holsters, Conversion Kits, etc.)
+- Filter by tags for specific needs (Glock, Right Hand, Black, etc.)
+- Check availability and pricing
+- Provide specific product details including SKU and stock status`
+}
+
 // buildOpenAIMessages converts conversation messages to OpenAI format
 func buildOpenAIMessages(conversation []models.ConversationMessage, productContext string, detectedLang utils.Language) []openai.ChatCompletionMessage {
 	// Create the main system prompt for tactical gear sales
@@ -225,21 +421,36 @@ func buildOpenAIMessages(conversation []models.ConversationMessage, productConte
 7. Suggest complementary products when appropriate
 8. Always direct customers to our store for purchases
 
-When customers ask about products, you should:
+CRITICAL: You MUST use the provided database metadata to make accurate recommendations. The metadata contains:
+- Product categories (155 total) for broad filtering
+- Product tags (1,471 total) - IMPORTANT: Tags represent product categories, attributes, and compatibilities that each product belongs to. Use tags to understand product relationships, compatibility, and attributes.
+- Pricing information and stock status
+- Key brands and product types
+
+When customers ask about products, you MUST:
+- Understand that the Tags column in product data shows which categories, attributes, and compatibilities the product belongs to
+- Use the database metadata to understand available categories and tags
 - Search through the provided product database context to find relevant items
-- Only suggest products that are actually available in our store
+- Match customer needs to appropriate categories and tags from the metadata
+- Only suggest products that are actually available in our store (check stock_status)
+- Use the metadata to filter by specific attributes (Glock, Right Hand, Black, etc.)
+- When products are filtered by tags, pay attention to the tag-based filtering to understand what specific attributes were matched
 - Provide detailed information about product specifications, pricing, and availability
 - Explain how products meet the customer's tactical or military needs
 - Offer alternatives if the exact product isn't available
 - Be honest about stock status and pricing
+- Reference specific categories and tags from the metadata when making recommendations
 
-Remember: You are representing Israel Defense Store, so maintain professionalism and focus on helping customers find the right tactical gear for their specific requirements.`
+Remember: You are representing Israel Defense Store, so maintain professionalism and focus on helping customers find the right tactical gear for their specific requirements. ALWAYS use the metadata to ensure accurate, relevant recommendations.`
 
 	// Add language instruction to the system prompt
 	languageInstruction := utils.GetLanguageInstruction(detectedLang)
 
-	// Combine system prompt, product context, and language instruction
-	enhancedContext := systemPrompt + "\n\n" + productContext + "\n\n" + languageInstruction
+	// Get database metadata for AI context
+	databaseMetadata := getDatabaseMetadata()
+
+	// Combine system prompt, database metadata, product context, and language instruction
+	enhancedContext := systemPrompt + "\n\n" + databaseMetadata + "\n\n" + productContext + "\n\n" + languageInstruction
 
 	messages := []openai.ChatCompletionMessage{
 		{
