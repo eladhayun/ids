@@ -83,3 +83,5 @@ config/local.json
 # Kubernetes
 *.kubeconfig
 isrealde_wp654.sql
+
+server
