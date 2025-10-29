@@ -43,18 +43,18 @@ func New(databaseURL string) (*sqlx.DB, error) {
 
 // ExecuteReadOnlyQuery executes a query within a read-only transaction for extra safety
 func ExecuteReadOnlyQuery(ctx context.Context, db *sqlx.DB, dest interface{}, query string, args ...interface{}) error {
+	// Set session to read-only mode before starting transaction
+	_, err := db.ExecContext(ctx, "SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED")
+	if err != nil {
+		return fmt.Errorf("failed to set session isolation level: %w", err)
+	}
+
 	// Start a read-only transaction
 	tx, err := db.BeginTxx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin read-only transaction: %w", err)
 	}
 	defer tx.Rollback() // Always rollback, we never commit read-only transactions
-
-	// Set transaction to read-only mode
-	_, err = tx.ExecContext(ctx, "SET TRANSACTION READ ONLY")
-	if err != nil {
-		return fmt.Errorf("failed to set read-only mode: %w", err)
-	}
 
 	// Execute the query
 	err = tx.SelectContext(ctx, dest, query, args...)
@@ -67,18 +67,18 @@ func ExecuteReadOnlyQuery(ctx context.Context, db *sqlx.DB, dest interface{}, qu
 
 // ExecuteReadOnlyQuerySingle executes a single-row query within a read-only transaction
 func ExecuteReadOnlyQuerySingle(ctx context.Context, db *sqlx.DB, dest interface{}, query string, args ...interface{}) error {
+	// Set session to read-only mode before starting transaction
+	_, err := db.ExecContext(ctx, "SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED")
+	if err != nil {
+		return fmt.Errorf("failed to set session isolation level: %w", err)
+	}
+
 	// Start a read-only transaction
 	tx, err := db.BeginTxx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin read-only transaction: %w", err)
 	}
 	defer tx.Rollback() // Always rollback, we never commit read-only transactions
-
-	// Set transaction to read-only mode
-	_, err = tx.ExecContext(ctx, "SET TRANSACTION READ ONLY")
-	if err != nil {
-		return fmt.Errorf("failed to set read-only mode: %w", err)
-	}
 
 	// Execute the query
 	err = tx.GetContext(ctx, dest, query, args...)
@@ -91,18 +91,18 @@ func ExecuteReadOnlyQuerySingle(ctx context.Context, db *sqlx.DB, dest interface
 
 // ExecuteReadOnlyPing executes a ping within a read-only transaction
 func ExecuteReadOnlyPing(ctx context.Context, db *sqlx.DB) error {
+	// Set session to read-only mode before starting transaction
+	_, err := db.ExecContext(ctx, "SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED")
+	if err != nil {
+		return fmt.Errorf("failed to set session isolation level: %w", err)
+	}
+
 	// Start a read-only transaction
 	tx, err := db.BeginTxx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin read-only transaction: %w", err)
 	}
 	defer tx.Rollback() // Always rollback, we never commit read-only transactions
-
-	// Set transaction to read-only mode
-	_, err = tx.ExecContext(ctx, "SET TRANSACTION READ ONLY")
-	if err != nil {
-		return fmt.Errorf("failed to set read-only mode: %w", err)
-	}
 
 	// Execute a simple query to test the connection in read-only mode
 	var result int

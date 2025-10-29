@@ -70,6 +70,7 @@ Remember: Swagger documentation is critical for API usability and must be kept c
 - Uses Swagger for API documentation
 - Follows clean architecture patterns with handlers, models, and server separation
 - Has a companion GitOps repository for Kubernetes deployments
+- **Database: MariaDB** (not MySQL) - affects SQL syntax and transaction handling
 
 ### Development Guidelines
 - Always use absolute paths when possible for tool calls
@@ -84,9 +85,11 @@ Remember: Swagger documentation is critical for API usability and must be kept c
 - GitOps repository contains Kubernetes manifests for deployment
 
 ### Database Interaction
+- **CRITICAL: This project uses MariaDB, NOT MySQL** - important for database-specific syntax and behavior
 - Always use MariaDB CLI tool when interacting with the database
 - Use command: `mariadb -h localhost -P 3306 -u root -p'my-secret-pw' -D isrealde_wp654 --ssl=false`
 - Database contains WordPress/WooCommerce product data with post_name (URL slug), post_title, and sku fields
+- MariaDB has some differences from MySQL in transaction characteristics and SQL syntax
 
 ### Documentation Requirements
 - Swagger documentation must be kept current

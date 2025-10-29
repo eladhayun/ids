@@ -15,7 +15,6 @@ class ChatBot {
     this.chatMessages = document.getElementById('chatMessages');
     this.messageInput = document.getElementById('messageInput');
     this.sendButton = document.getElementById('sendButton');
-    this.clearButton = document.getElementById('clearButton');
     this.typingIndicator = document.getElementById('typingIndicator');
     this.statusIndicator = document.getElementById('statusIndicator');
     this.statusDot = this.statusIndicator.querySelector('.status-dot');
@@ -47,8 +46,6 @@ class ChatBot {
       this.updateSendButton();
     });
 
-    // Clear chat
-    this.clearButton.addEventListener('click', () => this.clearChat());
 
     // Modal controls
     this.closeErrorModal.addEventListener('click', () => this.hideErrorModal());
@@ -255,20 +252,6 @@ class ChatBot {
     this.errorModal.style.display = 'none';
   }
 
-  clearChat() {
-    if (confirm('Are you sure you want to clear the mission? This action cannot be undone.')) {
-      // Keep only the initial bot message
-      const initialMessage = this.chatMessages.querySelector('.message');
-      this.chatMessages.innerHTML = '';
-      this.chatMessages.appendChild(initialMessage);
-
-      // Reset conversation
-      this.conversation = [];
-
-      // Reset status
-      this.checkConnection();
-    }
-  }
 
   scrollToBottom() {
     setTimeout(() => {
@@ -345,7 +328,9 @@ class ChatBot {
     });
 
     try {
-      return marked.parse(content);
+      const markdownContent = marked.parse(content);
+      // Add target="_blank" to all links
+      return markdownContent.replace(/<a\s+([^>]*?)href\s*=\s*["']([^"']*?)["']([^>]*?)>/gi, '<a $1href="$2"$3 target="_blank" rel="noopener noreferrer">');
     } catch (error) {
       console.error('Markdown parsing error:', error);
       return `<p>${this.escapeHtml(content)}</p>`;
