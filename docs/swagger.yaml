@@ -1,0 +1,281 @@
+definitions:
+  models.ChatRequest:
+    description: Chat request payload
+    properties:
+      conversation:
+        description: Array of conversation messages
+        items:
+          $ref: '#/definitions/models.ConversationMessage'
+        type: array
+    type: object
+  models.ChatResponse:
+    description: Chat response payload
+    properties:
+      error:
+        description: Error message if any
+        example: ""
+        type: string
+      response:
+        description: AI response message
+        example: Hello! How can I help you today?
+        type: string
+    type: object
+  models.ConversationMessage:
+    description: Single message in a conversation
+    properties:
+      message:
+        description: Message content
+        example: Hello, how can I help?
+        type: string
+      role:
+        description: Message role (user, assistant, system)
+        example: user
+        type: string
+    type: object
+  models.DBHealthResponse:
+    description: Database health check response
+    properties:
+      connected:
+        description: Database connection status
+        example: true
+        type: boolean
+      error:
+        description: Error message if any
+        example: ""
+        type: string
+      latency:
+        description: Database ping latency
+        example: 1ms
+        type: string
+      status:
+        description: Health status
+        example: healthy
+        type: string
+      timestamp:
+        description: Timestamp of the check
+        example: "2023-01-01T00:00:00Z"
+        type: string
+    type: object
+  models.HealthResponse:
+    description: Health check response
+    properties:
+      status:
+        description: Health status
+        example: healthy
+        type: string
+      timestamp:
+        description: Timestamp of the check
+        example: "2023-01-01T00:00:00Z"
+        type: string
+      version:
+        description: Application version
+        example: 1.0.0
+        type: string
+    type: object
+  models.PaginationMeta:
+    description: Pagination information
+    properties:
+      has_next:
+        description: Whether there is a next page
+        example: true
+        type: boolean
+      has_prev:
+        description: Whether there is a previous page
+        example: false
+        type: boolean
+      limit:
+        description: Items per page
+        example: 100
+        type: integer
+      page:
+        description: Current page number
+        example: 1
+        type: integer
+      total_count:
+        description: Total number of items
+        example: 500
+        type: integer
+      total_pages:
+        description: Total number of pages
+        example: 5
+        type: integer
+    type: object
+  models.Product:
+    description: Product information
+    properties:
+      description:
+        description: Product description
+        example: Product description
+        type: string
+      id:
+        description: Product ID
+        example: 1
+        type: integer
+      max_price:
+        description: Maximum price
+        example: "20.00"
+        type: string
+      min_price:
+        description: Minimum price
+        example: "10.00"
+        type: string
+      post_title:
+        description: Product title
+        example: Sample Product
+        type: string
+      short_description:
+        description: Short description
+        example: Short desc
+        type: string
+      sku:
+        description: Product SKU
+        example: SKU123
+        type: string
+      stock_quantity:
+        description: Stock quantity
+        example: 100
+        type: integer
+      stock_status:
+        description: Stock status
+        example: instock
+        type: string
+      tags:
+        description: Product tags
+        example: electronics,gadgets
+        type: string
+    type: object
+  models.ProductsResponse:
+    description: Paginated products response
+    properties:
+      data:
+        description: List of products
+        items:
+          $ref: '#/definitions/models.Product'
+        type: array
+      pagination:
+        allOf:
+        - $ref: '#/definitions/models.PaginationMeta'
+        description: Pagination metadata
+    type: object
+info:
+  contact: {}
+paths:
+  /:
+    get:
+      consumes:
+      - application/json
+      description: Get basic service information
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Root endpoint
+      tags:
+      - general
+  /chat:
+    post:
+      consumes:
+      - application/json
+      description: Send a conversation to the AI chatbot and get a response
+      parameters:
+      - description: Chat request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.ChatRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.ChatResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ChatResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ChatResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/models.ChatResponse'
+      summary: Chat with AI
+      tags:
+      - chat
+  /healthz:
+    get:
+      consumes:
+      - application/json
+      description: Get basic health status of the application
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.HealthResponse'
+      summary: Health check
+      tags:
+      - health
+  /healthz/db:
+    get:
+      consumes:
+      - application/json
+      description: Get database connectivity status and latency
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.DBHealthResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/models.DBHealthResponse'
+      summary: Database health check
+      tags:
+      - health
+  /products:
+    get:
+      consumes:
+      - application/json
+      description: Get paginated list of products from the database
+      parameters:
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.ProductsResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get products
+      tags:
+      - products
+swagger: "2.0"

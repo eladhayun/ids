@@ -61,6 +61,12 @@ jobs:
           fi
           staticcheck ./...
 
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          args: --timeout=5m
+
       - name: Save Go modules cache
         if: always()
         uses: actions/cache/save@v4

@@ -10,6 +10,7 @@ import (
 	"ids/internal/cache"
 	"ids/internal/config"
 	"ids/internal/models"
+	"ids/internal/utils"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
@@ -17,6 +18,17 @@ import (
 )
 
 // ChatHandler handles chat requests and processes them with OpenAI
+// @Summary Chat with AI
+// @Description Send a conversation to the AI chatbot and get a response
+// @Tags chat
+// @Accept json
+// @Produce json
+// @Param request body models.ChatRequest true "Chat request"
+// @Success 200 {object} models.ChatResponse
+// @Failure 400 {object} models.ChatResponse
+// @Failure 500 {object} models.ChatResponse
+// @Failure 503 {object} models.ChatResponse
+// @Router /chat [post]
 func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Handle case where database connection is not available
@@ -59,8 +71,20 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache) echo.Handl
 		// Create OpenAI client
 		client := openai.NewClient(cfg.OpenAIKey)
 
+		// Detect language from the latest user message
+		var detectedLang utils.Language
+		if len(req.Conversation) > 0 {
+			// Find the last user message to detect language
+			for i := len(req.Conversation) - 1; i >= 0; i-- {
+				if strings.Contains(strings.ToLower(req.Conversation[i].Role), "user") {
+					detectedLang = utils.DetectLanguage(req.Conversation[i].Message)
+					break
+				}
+			}
+		}
+
 		// Build conversation messages for OpenAI
-		messages := buildOpenAIMessages(req.Conversation, productData)
+		messages := buildOpenAIMessages(req.Conversation, productData, detectedLang)
 
 		// Create chat completion request
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -187,11 +211,15 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 }
 
 // buildOpenAIMessages converts conversation messages to OpenAI format
-func buildOpenAIMessages(conversation []models.ConversationMessage, productContext string) []openai.ChatCompletionMessage {
+func buildOpenAIMessages(conversation []models.ConversationMessage, productContext string, detectedLang utils.Language) []openai.ChatCompletionMessage {
+	// Add language instruction to the system prompt
+	languageInstruction := utils.GetLanguageInstruction(detectedLang)
+	enhancedContext := productContext + "\n\n" + languageInstruction
+
 	messages := []openai.ChatCompletionMessage{
 		{
 			Role:    openai.ChatMessageRoleSystem,
-			Content: productContext,
+			Content: enhancedContext,
 		},
 	}
 

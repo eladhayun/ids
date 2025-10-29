@@ -17,7 +17,8 @@ type Config struct {
 	Version         string
 	LogLevel        string
 	OpenAIKey       string
-	ProductCacheTTL int // Cache TTL in minutes
+	ProductCacheTTL int  // Cache TTL in minutes
+	WaitForTunnel   bool // Whether to wait for SSH tunnel to be ready
 }
 
 // Load initializes and returns application configuration
@@ -33,7 +34,8 @@ func Load() *Config {
 		Version:         getEnv("VERSION", "1.0.0"),
 		LogLevel:        getEnv("LOG_LEVEL", "info"),
 		OpenAIKey:       os.Getenv("OPENAI_API_KEY"),
-		ProductCacheTTL: getEnvInt("PRODUCT_CACHE_TTL", 10), // Default 10 minutes
+		ProductCacheTTL: getEnvInt("PRODUCT_CACHE_TTL", 10),  // Default 10 minutes
+		WaitForTunnel:   getEnvBool("WAIT_FOR_TUNNEL", true), // Default true for production safety
 	}
 
 	return config
@@ -52,6 +54,16 @@ func getEnvInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if intValue, err := strconv.Atoi(value); err == nil {
 			return intValue
+		}
+	}
+	return defaultValue
+}
+
+// getEnvBool gets an environment variable as boolean with a default fallback
+func getEnvBool(key string, defaultValue bool) bool {
+	if value := os.Getenv(key); value != "" {
+		if boolValue, err := strconv.ParseBool(value); err == nil {
+			return boolValue
 		}
 	}
 	return defaultValue

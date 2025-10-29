@@ -1,0 +1,64 @@
+# Cursor Rules for IDS API Project
+
+## Swagger Documentation Requirements
+
+When creating or modifying API endpoints, ALWAYS update Swagger documentation:
+
+### For New Endpoints:
+1. Add Swagger annotations to handler functions:
+   ```go
+   // @Summary Brief description
+   // @Description Detailed description
+   // @Tags category_name
+   // @Accept json
+   // @Produce json
+   // @Param param_name query/body/path type required "Description"
+   // @Success 200 {object} models.ResponseType
+   // @Failure 400 {object} models.ErrorResponse
+   // @Router /endpoint-path [method]
+   ```
+
+2. Update response models with annotations:
+   ```go
+   // @Description Model description
+   type Response struct {
+       Field string `json:"field" example:"value"` // Description
+   }
+   ```
+
+3. Regenerate documentation:
+   ```bash
+   make swagger
+   ```
+
+4. Test Swagger UI at: http://localhost:8080/swagger/
+
+### For Existing Endpoint Changes:
+- Update annotations if parameters, responses, or behavior changes
+- Regenerate docs after modifications
+- Verify changes in Swagger UI
+
+## Code Style Guidelines
+
+- Use descriptive function and variable names
+- Add comments for complex logic
+- Follow Go naming conventions
+- Use proper error handling
+- Include input validation
+
+## Project Structure
+
+- Handlers go in `internal/handlers/`
+- Models go in `internal/models/`
+- Server setup in `internal/server/`
+- Main entry point in `cmd/server/main.go`
+- Swagger docs in `docs/`
+
+## Testing
+
+- Test new endpoints using Swagger UI
+- Verify error responses work correctly
+- Check that all parameters are documented
+- Ensure response examples are accurate
+
+Remember: Swagger documentation is critical for API usability and must be kept current!

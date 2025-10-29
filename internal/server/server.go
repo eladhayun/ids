@@ -11,6 +11,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/rs/zerolog"
+	echoSwagger "github.com/swaggo/echo-swagger"
 )
 
 // Server represents the application server
@@ -75,6 +76,12 @@ func (s *Server) Initialize() {
 
 // setupRoutes configures all the application routes
 func (s *Server) setupRoutes() {
+	// Serve static files
+	s.echo.Static("/", "static")
+
+	// Swagger documentation
+	s.echo.GET("/swagger/*", echoSwagger.WrapHandler)
+
 	// Health endpoint
 	s.echo.GET("/healthz", handlers.HealthHandler(s.config.Version))
 

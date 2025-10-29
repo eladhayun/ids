@@ -1,12 +1,14 @@
 package main
 
 import (
-	"github.com/rs/zerolog"
+	"ids/docs"
 	"ids/internal/config"
 	"ids/internal/database"
 	"ids/internal/server"
 	"os"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 // waitForTunnel waits for the SSH tunnel to be ready
@@ -34,14 +36,25 @@ func waitForTunnel(logger *zerolog.Logger) {
 }
 
 func main() {
+	// Initialize Swagger docs
+	docs.SwaggerInfo.Title = "IDS API"
+	docs.SwaggerInfo.Description = "This is the IDS API server with product management and AI chat functionality."
+	docs.SwaggerInfo.Version = "1.0"
+	docs.SwaggerInfo.Host = "localhost:8080"
+	docs.SwaggerInfo.BasePath = "/"
+
 	// Load configuration
 	cfg := config.Load()
 
 	// Setup logger
 	logger := cfg.SetupLogger()
 
-	// Wait for SSH tunnel to be ready before attempting database connection
-	waitForTunnel(&logger)
+	// Wait for SSH tunnel to be ready before attempting database connection (if enabled)
+	if cfg.WaitForTunnel {
+		waitForTunnel(&logger)
+	} else {
+		logger.Info().Msg("Tunnel waiting disabled, proceeding with database connection")
+	}
 
 	// Initialize database connection
 	db, err := database.New(cfg.DatabaseURL)

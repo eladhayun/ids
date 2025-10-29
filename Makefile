@@ -1,4 +1,4 @@
-.PHONY: build run fmt tidy clean test help dev
+.PHONY: build run fmt tidy clean test help dev swagger
 
 # Build configuration
 BINARY_NAME=server
@@ -62,6 +62,7 @@ clean:
 install-tools:
 	@echo "Installing development tools..."
 	@go install -a github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@go install github.com/swaggo/swag/cmd/swag@latest
 
 # Lint the code
 lint:
@@ -80,9 +81,27 @@ build-prod:
 	@CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_DIR)
 	@echo "Production build complete: $(BUILD_DIR)/$(BINARY_NAME)"
 
+# Generate Swagger documentation
+swagger:
+	@echo "Generating Swagger documentation..."
+	@if command -v swag >/dev/null 2>&1; then \
+		swag init -g cmd/server/main.go -o docs/; \
+		echo "Swagger documentation generated successfully!"; \
+		echo "Access Swagger UI at: http://localhost:8080/swagger/"; \
+	else \
+		echo "swag not found. Run 'make install-tools' first."; \
+		exit 1; \
+	fi
+
 # Docker build
 docker-build:
 	@echo "Building Docker image..."
+	@echo "Note: Swagger documentation will be generated during Docker build"
+	@docker build -t ids-api .
+
+# Docker build with local Swagger generation
+docker-build-with-swagger: swagger
+	@echo "Building Docker image with pre-generated Swagger docs..."
 	@docker build -t ids-api .
 
 # Database management
@@ -134,7 +153,9 @@ help:
 	@echo "  install-tools - Install development tools"
 	@echo "  lint         - Lint the code"
 	@echo "  build-prod   - Build for production"
+	@echo "  swagger      - Generate Swagger documentation"
 	@echo "  docker-build - Build Docker image"
+	@echo "  docker-build-with-swagger - Build Docker image with pre-generated Swagger docs"
 	@echo "  db-start     - Start MariaDB container"
 	@echo "  db-stop      - Stop MariaDB container"
 	@echo "  db-remove    - Remove MariaDB container"

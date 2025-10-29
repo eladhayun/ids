@@ -20,6 +20,13 @@ const (
 )
 
 // HealthHandler handles basic health check requests
+// @Summary Health check
+// @Description Get basic health status of the application
+// @Tags health
+// @Accept json
+// @Produce json
+// @Success 200 {object} models.HealthResponse
+// @Router /healthz [get]
 func HealthHandler(version string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		response := models.HealthResponse{
@@ -33,6 +40,14 @@ func HealthHandler(version string) echo.HandlerFunc {
 }
 
 // DBHealthHandler handles database health check requests
+// @Summary Database health check
+// @Description Get database connectivity status and latency
+// @Tags health
+// @Accept json
+// @Produce json
+// @Success 200 {object} models.DBHealthResponse
+// @Failure 503 {object} models.DBHealthResponse
+// @Router /healthz/db [get]
 func DBHealthHandler(db *sqlx.DB) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		response := models.DBHealthResponse{
@@ -81,6 +96,13 @@ func DBHealthHandler(db *sqlx.DB) echo.HandlerFunc {
 }
 
 // RootHandler handles requests to the root endpoint
+// @Summary Root endpoint
+// @Description Get basic service information
+// @Tags general
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Router / [get]
 func RootHandler(version string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]string{
@@ -92,6 +114,16 @@ func RootHandler(version string) echo.HandlerFunc {
 }
 
 // ProductsHandler handles requests to get products with pagination
+// @Summary Get products
+// @Description Get paginated list of products from the database
+// @Tags products
+// @Accept json
+// @Produce json
+// @Param page query int false "Page number" default(1)
+// @Success 200 {object} models.ProductsResponse
+// @Failure 503 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Router /products [get]
 func ProductsHandler(db *sqlx.DB) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Handle case where database connection is not available
