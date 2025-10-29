@@ -65,7 +65,6 @@ func (s *Server) Initialize() {
 	// Middleware
 	s.echo.Use(s.zerologMiddleware())
 	s.echo.Use(middleware.Recover())
-	s.echo.Use(middleware.CORS())
 
 	// Hide Echo banner
 	s.echo.HideBanner = true
@@ -76,8 +75,18 @@ func (s *Server) Initialize() {
 
 // setupRoutes configures all the application routes
 func (s *Server) setupRoutes() {
-	// API group with /api prefix
+	// API group with /api prefix and permissive CORS
 	api := s.echo.Group("/api")
+
+	// Configure permissive CORS for all API endpoints
+	api.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins:     []string{"*"}, // Allow all origins
+		AllowMethods:     []string{echo.GET, echo.POST, echo.PUT, echo.DELETE, echo.PATCH, echo.OPTIONS, echo.HEAD},
+		AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, echo.HeaderXRequestedWith},
+		ExposeHeaders:    []string{echo.HeaderContentLength, echo.HeaderContentType, echo.HeaderContentDisposition},
+		AllowCredentials: false, // Set to false when using wildcard origins
+		MaxAge:           86400, // Cache preflight for 24 hours
+	}))
 
 	// Health endpoints moved under /api prefix
 	api.GET("/healthz", handlers.HealthHandler(s.config.Version))
