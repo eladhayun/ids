@@ -6,18 +6,18 @@ This document describes the IDS API server with product management and AI chat f
 
 The API includes comprehensive Swagger/OpenAPI documentation that can be accessed at:
 
-**Swagger UI**: `http://localhost:8080/swagger/`
+**Swagger UI**: `http://localhost:8080/swagger/index.html`
 
 ### Available Endpoints
 
 - **GET** `/` - Static UI (Support Bot interface)
-- **GET** `/healthz` - Basic health check
-- **GET** `/healthz/db` - Database health check
 - **GET** `/swagger/` - Swagger UI documentation
 
 #### API Endpoints (under `/api` prefix)
 
 - **GET** `/api/` - Root API endpoint with service information
+- **GET** `/api/healthz` - Basic health check
+- **GET** `/api/healthz/db` - Database health check
 - **GET** `/api/products` - Get paginated list of products
 - **POST** `/api/chat` - Chat with AI assistant
 

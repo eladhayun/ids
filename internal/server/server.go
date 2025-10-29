@@ -79,12 +79,21 @@ func (s *Server) setupRoutes() {
 	// API group with /api prefix
 	api := s.echo.Group("/api")
 
-	// Swagger documentation
-	s.echo.GET("/swagger/*", echoSwagger.WrapHandler)
+	// Health endpoints moved under /api prefix
+	api.GET("/healthz", handlers.HealthHandler(s.config.Version))
+	api.GET("/healthz/db", handlers.DBHealthHandler(s.db))
 
-	// Health endpoints (keep at root level for monitoring)
-	s.echo.GET("/healthz", handlers.HealthHandler(s.config.Version))
-	s.echo.GET("/healthz/db", handlers.DBHealthHandler(s.db))
+	// Swagger redirects (must be before wildcard route)
+	s.echo.GET("/swagger", func(c echo.Context) error {
+		return c.Redirect(301, "/swagger/index.html")
+	})
+
+	s.echo.GET("/swagger/", func(c echo.Context) error {
+		return c.Redirect(301, "/swagger/index.html")
+	})
+
+	// Swagger documentation (must be before static files)
+	s.echo.GET("/swagger/*", echoSwagger.WrapHandler)
 
 	// API endpoints under /api prefix
 	api.GET("/", handlers.RootHandler(s.config.Version))

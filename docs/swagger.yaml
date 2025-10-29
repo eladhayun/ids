@@ -211,6 +211,40 @@ paths:
       summary: Chat with AI
       tags:
       - chat
+  /api/healthz:
+    get:
+      consumes:
+      - application/json
+      description: Get basic health status of the application
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.HealthResponse'
+      summary: Health check
+      tags:
+      - health
+  /api/healthz/db:
+    get:
+      consumes:
+      - application/json
+      description: Get database connectivity status and latency
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.DBHealthResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/models.DBHealthResponse'
+      summary: Database health check
+      tags:
+      - health
   /api/products:
     get:
       consumes:
@@ -244,38 +278,4 @@ paths:
       summary: Get products
       tags:
       - products
-  /healthz:
-    get:
-      consumes:
-      - application/json
-      description: Get basic health status of the application
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.HealthResponse'
-      summary: Health check
-      tags:
-      - health
-  /healthz/db:
-    get:
-      consumes:
-      - application/json
-      description: Get database connectivity status and latency
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.DBHealthResponse'
-        "503":
-          description: Service Unavailable
-          schema:
-            $ref: '#/definitions/models.DBHealthResponse'
-      summary: Database health check
-      tags:
-      - health
 swagger: "2.0"

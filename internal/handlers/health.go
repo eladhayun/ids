@@ -26,7 +26,7 @@ const (
 // @Accept json
 // @Produce json
 // @Success 200 {object} models.HealthResponse
-// @Router /healthz [get]
+// @Router /api/healthz [get]
 func HealthHandler(version string) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		response := models.HealthResponse{
@@ -47,7 +47,7 @@ func HealthHandler(version string) echo.HandlerFunc {
 // @Produce json
 // @Success 200 {object} models.DBHealthResponse
 // @Failure 503 {object} models.DBHealthResponse
-// @Router /healthz/db [get]
+// @Router /api/healthz/db [get]
 func DBHealthHandler(db *sqlx.DB) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		response := models.DBHealthResponse{
