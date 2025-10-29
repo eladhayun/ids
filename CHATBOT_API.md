@@ -67,6 +67,7 @@ Add the following to your `.env` file:
 
 ```env
 OPENAI_API_KEY=your_openai_api_key_here
+PRODUCT_CACHE_TTL=10
 ```
 
 ### Required Dependencies
@@ -78,9 +79,10 @@ The chatbot functionality requires:
 ## How It Works
 
 1. **Context Building**: The system fetches sample product data from your database to provide context to the AI
-2. **Message Processing**: Conversation messages are converted to OpenAI's chat format
-3. **AI Processing**: The conversation is sent to OpenAI's GPT-4o model with product context
-4. **Response**: The AI's response is returned to the client
+2. **Caching**: Product data is cached in memory for the configured TTL (default 10 minutes) to improve performance
+3. **Message Processing**: Conversation messages are converted to OpenAI's chat format
+4. **AI Processing**: The conversation is sent to OpenAI's GPT-4o model with product context
+5. **Response**: The AI's response is returned to the client
 
 ## Example Usage
 
@@ -122,6 +124,13 @@ The AI assistant has access to product information including:
 - Product tags and categories
 
 This context helps the assistant provide accurate and relevant responses about your products.
+
+## Performance & Caching
+
+- **Product Data Caching**: Product context data is cached in memory for improved performance
+- **Configurable TTL**: Cache duration is configurable via `PRODUCT_CACHE_TTL` (default: 10 minutes)
+- **Cache Scope**: Only applies to the product context query, not the main products endpoint
+- **Automatic Expiration**: Cached data automatically expires and is refreshed
 
 ## Rate Limits
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"ids/internal/cache"
 	"ids/internal/config"
 	"ids/internal/models"
 
@@ -16,7 +17,7 @@ import (
 )
 
 // ChatHandler handles chat requests and processes them with OpenAI
-func ChatHandler(db *sqlx.DB, cfg *config.Config) echo.HandlerFunc {
+func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Handle case where database connection is not available
 		if db == nil {
@@ -47,8 +48,8 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config) echo.HandlerFunc {
 			})
 		}
 
-		// Get product data from database to provide context
-		productData, err := getProductDataForContext(db)
+		// Get product data from database to provide context (with caching)
+		productData, err := getProductDataForContext(db, cache, cfg.ProductCacheTTL)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, models.ChatResponse{
 				Error: fmt.Sprintf("Failed to fetch product data: %v", err),
@@ -93,8 +94,18 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config) echo.HandlerFunc {
 	}
 }
 
-// getProductDataForContext fetches product data to provide context to the LLM
-func getProductDataForContext(db *sqlx.DB) (string, error) {
+// getProductDataForContext fetches product data to provide context to the LLM (with caching)
+func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes int) (string, error) {
+	const cacheKey = "product_context_data"
+
+	// Try to get from cache first
+	if cachedData, found := cache.Get(cacheKey); found {
+		if productData, ok := cachedData.(string); ok {
+			return productData, nil
+		}
+	}
+
+	// Cache miss or invalid data, fetch from database
 	query := `
 		SELECT
 		  p.ID,
@@ -167,7 +178,12 @@ func getProductDataForContext(db *sqlx.DB) (string, error) {
 	contextBuilder.WriteString("Please provide helpful, accurate answers about our products based on this information. ")
 	contextBuilder.WriteString("If you need more specific product details, let the user know that you can help them find specific products.\n")
 
-	return contextBuilder.String(), nil
+	productData := contextBuilder.String()
+
+	// Cache the result for the specified TTL
+	cache.Set(cacheKey, productData, time.Duration(cacheTTLMinutes)*time.Minute)
+
+	return productData, nil
 }
 
 // buildOpenAIMessages converts conversation messages to OpenAI format
