@@ -36,7 +36,7 @@ RUN addgroup -g 1001 appuser && \
   adduser -u 1001 -G appuser -s /bin/sh -D appuser
 
 # Set working directory
-WORKDIR /root/
+WORKDIR /home/appuser
 
 # Copy the binary from builder stage
 COPY --from=builder /app/main .
@@ -45,7 +45,7 @@ COPY --from=builder /app/main .
 COPY --from=builder /app/static ./static
 
 # Change ownership to non-root user
-RUN chown -R appuser:appuser main static
+RUN chown -R appuser:appuser /home/appuser
 
 # Switch to non-root user
 USER appuser
