@@ -64,15 +64,17 @@ install-tools:
 	@go install -a github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 	@go install github.com/swaggo/swag/cmd/swag@latest
 
-# Lint the code
+# Lint the code (same checks as CI)
 lint:
-	@echo "Linting code..."
-	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run; \
-	else \
-		echo "golangci-lint not found. Run 'make install-tools' first."; \
-		exit 1; \
+	@echo "Running go vet..."
+	@go vet ./...
+	@echo "Running staticcheck..."
+	@if ! command -v staticcheck &> /dev/null; then \
+		echo "Installing staticcheck..."; \
+		go install honnef.co/go/tools/cmd/staticcheck@latest; \
 	fi
+	@staticcheck ./...
+	@echo "Linting complete!"
 
 # Build for production (with optimizations)
 build-prod:
