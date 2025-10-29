@@ -149,21 +149,33 @@ class ChatBot {
     if (role === 'user') {
       avatar.innerHTML = `
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 12C14.7614 12 17 9.76142 17 7C17 4.23858 14.7614 2 12 2C9.23858 2 7 4.23858 7 7C7 9.76142 9.23858 12 12 12Z" fill="currentColor"/>
-                    <path d="M12 14C7.58172 14 4 17.5817 4 22H20C20 17.5817 16.4183 14 12 14Z" fill="currentColor"/>
+                    <path d="M12 2L13.09 8.26L20 9L13.09 9.74L12 16L10.91 9.74L4 9L10.91 8.26L12 2Z" fill="currentColor"/>
+                    <path d="M12 2C13.1 2 14 2.9 14 4C14 5.1 13.1 6 12 6C10.9 6 10 5.1 10 4C10 2.9 10.9 2 12 2Z" fill="currentColor"/>
+                    <path d="M12 8C15.31 8 18 10.69 18 14C18 17.31 15.31 20 12 20C8.69 20 6 17.31 6 14C6 10.69 8.69 8 12 8Z" fill="currentColor"/>
                 </svg>
             `;
     } else {
       avatar.innerHTML = `
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 2C13.1 2 14 2.9 14 4C14 5.1 13.1 6 12 6C10.9 6 10 5.1 10 4C10 2.9 10.9 2 12 2ZM21 9V7L15 1H5C3.89 1 3 1.89 3 3V21C3 22.11 3.89 23 5 23H19C20.11 23 21 22.11 21 21V9M19 9H14V4L19 9Z" fill="currentColor"/>
+                    <path d="M12 2L13.09 8.26L20 9L13.09 9.74L12 16L10.91 9.74L4 9L10.91 8.26L12 2Z" fill="currentColor"/>
+                    <path d="M12 2C13.1 2 14 2.9 14 4C14 5.1 13.1 6 12 6C10.9 6 10 5.1 10 4C10 2.9 10.9 2 12 2Z" fill="currentColor"/>
+                    <path d="M12 8C15.31 8 18 10.69 18 14C18 17.31 15.31 20 12 20C8.69 20 6 17.31 6 14C6 10.69 8.69 8 12 8Z" fill="currentColor"/>
                 </svg>
             `;
     }
 
     const messageContent = document.createElement('div');
     messageContent.className = 'message-content';
-    messageContent.innerHTML = `<p>${this.escapeHtml(content)}</p>`;
+
+    if (role === 'user') {
+      // For user messages, just escape HTML
+      messageContent.innerHTML = `<p>${this.escapeHtml(content)}</p>`;
+    } else {
+      // For bot messages, render as markdown and process product links
+      const processedContent = this.processProductLinks(content);
+      const markdownContent = this.renderMarkdown(processedContent);
+      messageContent.innerHTML = markdownContent;
+    }
 
     messageDiv.appendChild(avatar);
     messageDiv.appendChild(messageContent);
@@ -235,7 +247,7 @@ class ChatBot {
   }
 
   clearChat() {
-    if (confirm('Are you sure you want to clear the chat? This action cannot be undone.')) {
+    if (confirm('Are you sure you want to clear the mission? This action cannot be undone.')) {
       // Keep only the initial bot message
       const initialMessage = this.chatMessages.querySelector('.message');
       this.chatMessages.innerHTML = '';
@@ -259,6 +271,52 @@ class ChatBot {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  // Render markdown content
+  renderMarkdown(content) {
+    if (typeof marked === 'undefined') {
+      // Fallback if marked library is not loaded
+      return `<p>${this.escapeHtml(content)}</p>`;
+    }
+
+    // Configure marked options
+    marked.setOptions({
+      breaks: true, // Convert line breaks to <br>
+      gfm: true,    // GitHub Flavored Markdown
+      sanitize: false, // Allow HTML (we'll sanitize manually)
+    });
+
+    try {
+      return marked.parse(content);
+    } catch (error) {
+      console.error('Markdown parsing error:', error);
+      return `<p>${this.escapeHtml(content)}</p>`;
+    }
+  }
+
+  // Process product links - convert product names to clickable links
+  processProductLinks(content) {
+    // This regex looks for product names that might be mentioned in the response
+    // and converts them to markdown links to the store
+    const storeDomain = 'https://israeldefensestore.com';
+
+    // Look for patterns that might be product names (capitalized words, possibly with numbers)
+    // This is a simple heuristic - in a real implementation, you might want to be more sophisticated
+    const productPattern = /\b([A-Z][a-zA-Z0-9\s\-&]+(?:Holster|Gun|Pistol|Rifle|Gear|Kit|System|Defense|Tactical|Military|Equipment|Accessory|Accessories)?)\b/g;
+
+    return content.replace(productPattern, (match, productName) => {
+      // Skip if it's already a link or if it's too short
+      if (match.includes('[') || match.includes('http') || productName.length < 3) {
+        return match;
+      }
+
+      // Create a search URL for the product
+      const searchQuery = encodeURIComponent(productName.trim());
+      const productUrl = `${storeDomain}/?s=${searchQuery}`;
+
+      return `[${productName}](${productUrl})`;
+    });
   }
 }
 

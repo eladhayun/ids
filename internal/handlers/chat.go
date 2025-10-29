@@ -306,28 +306,32 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 		if i >= 10 { // Limit to first 10 products for context
 			break
 		}
-		contextBuilder.WriteString(fmt.Sprintf("Product ID: %d\n", product.ID))
-		contextBuilder.WriteString(fmt.Sprintf("Title: %s\n", product.PostTitle))
-		if product.ShortDescription != nil {
+		contextBuilder.WriteString(fmt.Sprintf("**%s**\n", product.PostTitle))
+		if product.ShortDescription != nil && *product.ShortDescription != "" {
 			contextBuilder.WriteString(fmt.Sprintf("Description: %s\n", *product.ShortDescription))
 		}
-		if product.SKU != nil {
-			contextBuilder.WriteString(fmt.Sprintf("SKU: %s\n", *product.SKU))
-		}
 		if product.MinPrice != nil && product.MaxPrice != nil {
-			contextBuilder.WriteString(fmt.Sprintf("Price Range: %s - %s\n", *product.MinPrice, *product.MaxPrice))
+			if *product.MinPrice == *product.MaxPrice {
+				contextBuilder.WriteString(fmt.Sprintf("Price: $%s\n", *product.MinPrice))
+			} else {
+				contextBuilder.WriteString(fmt.Sprintf("Price: $%s - $%s\n", *product.MinPrice, *product.MaxPrice))
+			}
 		}
 		if product.StockStatus != nil {
-			contextBuilder.WriteString(fmt.Sprintf("Stock Status: %s\n", *product.StockStatus))
+			stockStatus := "In Stock"
+			if *product.StockStatus != "instock" {
+				stockStatus = "Out of Stock"
+			}
+			contextBuilder.WriteString(fmt.Sprintf("Availability: %s\n", stockStatus))
 		}
 		if product.Tags != nil {
-			contextBuilder.WriteString(fmt.Sprintf("Product Categories/Attributes/Tags: %s\n", *product.Tags))
+			contextBuilder.WriteString(fmt.Sprintf("Categories: %s\n", *product.Tags))
 		}
 		contextBuilder.WriteString("\n")
 	}
 
 	contextBuilder.WriteString("IMPORTANT: Only recommend products from this database that are available in our store. ")
-	contextBuilder.WriteString("Always provide specific product details including SKU, pricing, and stock status when making recommendations. ")
+	contextBuilder.WriteString("Always provide specific product details including pricing and stock status when making recommendations. ")
 	contextBuilder.WriteString("If a customer asks about products not in this database, politely explain that you can only recommend products from our current inventory.\n")
 
 	productData := contextBuilder.String()
@@ -397,8 +401,7 @@ RECOMMENDATION RULES:
 3. Use tags for specific attributes (color, hand orientation, weapon compatibility)
 4. Match customer needs to appropriate categories and tags
 5. Consider price range when making recommendations
-6. Use SKU for exact product identification
-7. Only recommend products from the provided database context
+6. Only recommend products from the provided database context
 
 SEARCH STRATEGY:
 - Search by category first (Gun Holsters, Conversion Kits, etc.)
@@ -440,6 +443,15 @@ When customers ask about products, you MUST:
 - Offer alternatives if the exact product isn't available
 - Be honest about stock status and pricing
 - Reference specific categories and tags from the metadata when making recommendations
+
+RESPONSE FORMATTING:
+- Format your responses using Markdown for better readability
+- Use **bold** for product names and important features
+- Use bullet points for lists of products or features
+- Use line breaks to separate different sections
+- Do NOT include SKU information in your responses - customers don't need this
+- When mentioning products, format them as: **[Product Name]** - [Description] - Price: [Price Range]
+- Use proper markdown formatting for better presentation
 
 Remember: You are representing Israel Defense Store, so maintain professionalism and focus on helping customers find the right tactical gear for their specific requirements. ALWAYS use the metadata to ensure accurate, relevant recommendations.`
 
