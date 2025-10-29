@@ -68,9 +68,9 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config) echo.HandlerFunc {
 		resp, err := client.CreateChatCompletion(
 			ctx,
 			openai.ChatCompletionRequest{
-				Model: openai.GPT4o, // Using GPT-4o as GPT-5 is not available yet
-				Messages: messages,
-				MaxTokens: 1000,
+				Model:       openai.GPT4o, // Using GPT-4o as GPT-5 is not available yet
+				Messages:    messages,
+				MaxTokens:   1000,
 				Temperature: 0.7,
 			},
 		)
@@ -183,9 +183,9 @@ func buildOpenAIMessages(conversation []models.ConversationMessage, productConte
 	for _, msg := range conversation {
 		// Determine role based on row_key or alternate pattern
 		role := openai.ChatMessageRoleUser
-		if strings.Contains(strings.ToLower(msg.RowKey), "assistant") || 
-		   strings.Contains(strings.ToLower(msg.RowKey), "bot") ||
-		   strings.Contains(strings.ToLower(msg.RowKey), "ai") {
+		if strings.Contains(strings.ToLower(msg.RowKey), "assistant") ||
+			strings.Contains(strings.ToLower(msg.RowKey), "bot") ||
+			strings.Contains(strings.ToLower(msg.RowKey), "ai") {
 			role = openai.ChatMessageRoleAssistant
 		}
 
