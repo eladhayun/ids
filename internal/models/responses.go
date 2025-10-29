@@ -47,3 +47,20 @@ type ProductsResponse struct {
 	Data       []Product      `json:"data"`
 	Pagination PaginationMeta `json:"pagination"`
 }
+
+// ConversationMessage represents a single message in a conversation
+type ConversationMessage struct {
+	RowKey  string `json:"row_key"`
+	Message string `json:"message"`
+}
+
+// ChatRequest represents the request body for the chat endpoint
+type ChatRequest struct {
+	Conversation []ConversationMessage `json:"conversation"`
+}
+
+// ChatResponse represents the response from the chat endpoint
+type ChatResponse struct {
+	Response string `json:"response"`
+	Error    string `json:"error,omitempty"`
+}

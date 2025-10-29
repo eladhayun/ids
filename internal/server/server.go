@@ -83,6 +83,9 @@ func (s *Server) setupRoutes() {
 
 	// Products endpoint with pagination
 	s.echo.GET("/products", handlers.ProductsHandler(s.db))
+
+	// Chat endpoint for chatbot functionality
+	s.echo.POST("/chat", handlers.ChatHandler(s.db, s.config))
 }
 
 // Start starts the HTTP server

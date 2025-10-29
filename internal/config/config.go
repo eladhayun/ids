@@ -15,6 +15,7 @@ type Config struct {
 	DatabaseURL string
 	Version     string
 	LogLevel    string
+	OpenAIKey   string
 }
 
 // Load initializes and returns application configuration
@@ -29,6 +30,7 @@ func Load() *Config {
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		Version:     getEnv("VERSION", "1.0.0"),
 		LogLevel:    getEnv("LOG_LEVEL", "info"),
+		OpenAIKey:   os.Getenv("OPENAI_API_KEY"),
 	}
 
 	return config
