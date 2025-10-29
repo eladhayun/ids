@@ -11,15 +11,15 @@ curl -X POST http://localhost:8080/chat \
   -d '{
     "conversation": [
       {
-        "row_key": "user_1",
+        "role": "user",
         "message": "Hello, I am looking for products in your store. Can you help me find some electronics?"
       },
       {
-        "row_key": "assistant_1", 
+        "role": "assistant", 
         "message": "Hello! I would be happy to help you find electronics in our store. Let me search through our product catalog for you."
       },
       {
-        "row_key": "user_2",
+        "role": "user",
         "message": "What products do you have available? I am particularly interested in items under $100."
       }
     ]

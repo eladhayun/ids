@@ -50,7 +50,7 @@ type ProductsResponse struct {
 
 // ConversationMessage represents a single message in a conversation
 type ConversationMessage struct {
-	RowKey  string `json:"row_key"`
+	Role    string `json:"role"`
 	Message string `json:"message"`
 }
 

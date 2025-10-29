@@ -18,15 +18,15 @@ The endpoint accepts a JSON payload with the following structure:
 {
   "conversation": [
     {
-      "row_key": "user_1",
+      "role": "user",
       "message": "Hello, I am looking for products in your store."
     },
     {
-      "row_key": "assistant_1",
+      "role": "assistant",
       "message": "Hello! I would be happy to help you find products."
     },
     {
-      "row_key": "user_2", 
+      "role": "user", 
       "message": "What electronics do you have available?"
     }
   ]
@@ -36,13 +36,13 @@ The endpoint accepts a JSON payload with the following structure:
 ### Request Fields
 
 - `conversation` (array, required): Array of conversation messages
-  - `row_key` (string, required): Identifier for the message (used to determine if it's from user or assistant)
+  - `role` (string, required): Role of the message sender ("user" or "assistant")
   - `message` (string, required): The actual message content
 
 ### Role Detection
 
-The system automatically determines if a message is from a user or assistant based on the `row_key`:
-- Messages with `row_key` containing "assistant", "bot", or "ai" are treated as assistant messages
+The system automatically determines if a message is from a user or assistant based on the `role` field:
+- Messages with `role` containing "assistant", "bot", or "ai" are treated as assistant messages
 - All other messages are treated as user messages
 
 ## Response Format
@@ -92,7 +92,7 @@ curl -X POST http://localhost:8080/chat \
   -d '{
     "conversation": [
       {
-        "row_key": "user_1",
+        "role": "user",
         "message": "What products do you have under $50?"
       }
     ]

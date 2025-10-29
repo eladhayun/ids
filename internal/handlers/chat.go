@@ -181,11 +181,11 @@ func buildOpenAIMessages(conversation []models.ConversationMessage, productConte
 
 	// Add conversation messages
 	for _, msg := range conversation {
-		// Determine role based on row_key or alternate pattern
+		// Determine role based on the role field
 		role := openai.ChatMessageRoleUser
-		if strings.Contains(strings.ToLower(msg.RowKey), "assistant") ||
-			strings.Contains(strings.ToLower(msg.RowKey), "bot") ||
-			strings.Contains(strings.ToLower(msg.RowKey), "ai") {
+		if strings.Contains(strings.ToLower(msg.Role), "assistant") ||
+			strings.Contains(strings.ToLower(msg.Role), "bot") ||
+			strings.Contains(strings.ToLower(msg.Role), "ai") {
 			role = openai.ChatMessageRoleAssistant
 		}
 
