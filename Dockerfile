@@ -41,8 +41,11 @@ WORKDIR /root/
 # Copy the binary from builder stage
 COPY --from=builder /app/main .
 
+# Copy static files for the frontend
+COPY --from=builder /app/static ./static
+
 # Change ownership to non-root user
-RUN chown appuser:appuser main
+RUN chown -R appuser:appuser main static
 
 # Switch to non-root user
 USER appuser
