@@ -67,6 +67,22 @@ func (s *Server) Initialize() {
 	s.echo.Use(middleware.Recover())
 	s.echo.Use(middleware.CORS())
 
+	// Add no-cache headers for static files to prevent browser caching
+	s.echo.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			// Set no-cache headers for static files
+			if c.Request().URL.Path == "/" ||
+				c.Request().URL.Path == "/index.html" ||
+				c.Request().URL.Path == "/script.js" ||
+				c.Request().URL.Path == "/style.css" {
+				c.Response().Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+				c.Response().Header().Set("Pragma", "no-cache")
+				c.Response().Header().Set("Expires", "0")
+			}
+			return next(c)
+		}
+	})
+
 	// Hide Echo banner
 	s.echo.HideBanner = true
 
