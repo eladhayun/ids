@@ -67,6 +67,22 @@ func (s *Server) Initialize() {
 	s.echo.Use(middleware.Recover())
 	s.echo.Use(middleware.CORS())
 
+	// Add cache-busting headers for static files
+	s.echo.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			// Set no-cache headers for static files
+			if c.Request().URL.Path == "/" ||
+				c.Request().URL.Path == "/index.html" ||
+				c.Request().URL.Path == "/script.js" ||
+				c.Request().URL.Path == "/style.css" {
+				c.Response().Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+				c.Response().Header().Set("Pragma", "no-cache")
+				c.Response().Header().Set("Expires", "0")
+			}
+			return next(c)
+		}
+	})
+
 	// Hide Echo banner
 	s.echo.HideBanner = true
 
@@ -100,8 +116,13 @@ func (s *Server) setupRoutes() {
 	api.GET("/products", handlers.ProductsHandler(s.db))
 	api.POST("/chat", handlers.ChatHandler(s.db, s.config, s.cache))
 
-	// Serve static files (this should be last to avoid conflicts)
-	s.echo.Static("/", "static")
+	// Serve static files with cache-busting headers (this should be last to avoid conflicts)
+	s.echo.Use(middleware.StaticWithConfig(middleware.StaticConfig{
+		Root:   "static",
+		Index:  "index.html",
+		Browse: false,
+		HTML5:  true,
+	}))
 }
 
 // Start starts the HTTP server
