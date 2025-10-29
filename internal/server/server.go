@@ -3,6 +3,7 @@ package server
 import (
 	"time"
 
+	"ids/internal/cache"
 	"ids/internal/config"
 	"ids/internal/handlers"
 
@@ -18,6 +19,7 @@ type Server struct {
 	db     *sqlx.DB
 	config *config.Config
 	logger zerolog.Logger
+	cache  *cache.Cache
 }
 
 // New creates a new server instance
@@ -26,6 +28,7 @@ func New(cfg *config.Config, db *sqlx.DB, logger zerolog.Logger) *Server {
 		config: cfg,
 		db:     db,
 		logger: logger,
+		cache:  cache.New(),
 	}
 }
 
@@ -83,6 +86,9 @@ func (s *Server) setupRoutes() {
 
 	// Products endpoint with pagination
 	s.echo.GET("/products", handlers.ProductsHandler(s.db))
+
+	// Chat endpoint for chatbot functionality
+	s.echo.POST("/chat", handlers.ChatHandler(s.db, s.config, s.cache))
 }
 
 // Start starts the HTTP server

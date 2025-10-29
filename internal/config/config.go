@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -11,10 +12,12 @@ import (
 
 // Config holds all configuration for the application
 type Config struct {
-	Port        string
-	DatabaseURL string
-	Version     string
-	LogLevel    string
+	Port            string
+	DatabaseURL     string
+	Version         string
+	LogLevel        string
+	OpenAIKey       string
+	ProductCacheTTL int // Cache TTL in minutes
 }
 
 // Load initializes and returns application configuration
@@ -25,10 +28,12 @@ func Load() *Config {
 	}
 
 	config := &Config{
-		Port:        getEnv("PORT", "8080"),
-		DatabaseURL: os.Getenv("DATABASE_URL"),
-		Version:     getEnv("VERSION", "1.0.0"),
-		LogLevel:    getEnv("LOG_LEVEL", "info"),
+		Port:            getEnv("PORT", "8080"),
+		DatabaseURL:     os.Getenv("DATABASE_URL"),
+		Version:         getEnv("VERSION", "1.0.0"),
+		LogLevel:        getEnv("LOG_LEVEL", "info"),
+		OpenAIKey:       os.Getenv("OPENAI_API_KEY"),
+		ProductCacheTTL: getEnvInt("PRODUCT_CACHE_TTL", 10), // Default 10 minutes
 	}
 
 	return config
@@ -38,6 +43,16 @@ func Load() *Config {
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
+	}
+	return defaultValue
+}
+
+// getEnvInt gets an environment variable as integer with a default fallback
+func getEnvInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if intValue, err := strconv.Atoi(value); err == nil {
+			return intValue
+		}
 	}
 	return defaultValue
 }
