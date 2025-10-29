@@ -116,8 +116,17 @@ func (s *Server) setupRoutes() {
 	api.GET("/products", handlers.ProductsHandler(s.db))
 	api.POST("/chat", handlers.ChatHandler(s.db, s.config, s.cache))
 
-	// Serve static files (this should be last to avoid conflicts)
-	s.echo.Static("/", "static")
+	// Handle favicon requests
+	s.echo.GET("/favicon.ico", func(c echo.Context) error {
+		return c.NoContent(204) // No content response for favicon
+	})
+
+	// Serve static files for specific paths only
+	s.echo.Static("/static", "static")
+	s.echo.File("/", "static/index.html")
+	s.echo.File("/index.html", "static/index.html")
+	s.echo.File("/script.js", "static/script.js")
+	s.echo.File("/style.css", "static/style.css")
 }
 
 // Start starts the HTTP server
