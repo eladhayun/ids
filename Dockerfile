@@ -22,8 +22,14 @@ COPY . .
 # Generate Swagger documentation
 RUN swag init -g cmd/server/main.go -o docs/
 
-# Build the application
+# Build the main application
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./cmd/server
+
+# Build the init-embeddings command
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o init-embeddings-write ./cmd/init-embeddings-write
+
+# Build the update-embeddings command
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o update-embeddings ./cmd/update-embeddings
 
 # Final stage
 FROM alpine:latest
@@ -38,8 +44,10 @@ RUN addgroup -g 1001 appuser && \
 # Set working directory
 WORKDIR /home/appuser
 
-# Copy the binary from builder stage
+# Copy the binaries from builder stage
 COPY --from=builder /app/main .
+COPY --from=builder /app/init-embeddings-write .
+COPY --from=builder /app/update-embeddings .
 
 # Copy static files for the frontend
 COPY --from=builder /app/static ./static

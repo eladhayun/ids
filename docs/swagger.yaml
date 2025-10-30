@@ -15,6 +15,11 @@ definitions:
         description: Error message if any
         example: ""
         type: string
+      products:
+        additionalProperties:
+          type: string
+        description: Product name to SKU mapping for link generation
+        type: object
       response:
         description: AI response message
         example: Hello! How can I help you today?
@@ -118,6 +123,10 @@ definitions:
       min_price:
         description: Minimum price
         example: "10.00"
+        type: string
+      post_name:
+        description: Product URL slug
+        example: sample-product
         type: string
       post_title:
         description: Product title

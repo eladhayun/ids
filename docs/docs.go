@@ -219,6 +219,13 @@ const docTemplate = `{
                     "type": "string",
                     "example": ""
                 },
+                "products": {
+                    "description": "Product name to SKU mapping for link generation",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
                 "response": {
                     "description": "AI response message",
                     "type": "string",
@@ -353,6 +360,11 @@ const docTemplate = `{
                     "description": "Minimum price",
                     "type": "string",
                     "example": "10.00"
+                },
+                "post_name": {
+                    "description": "Product URL slug",
+                    "type": "string",
+                    "example": "sample-product"
                 },
                 "post_title": {
                     "description": "Product title",

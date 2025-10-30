@@ -5,6 +5,7 @@ import (
 
 	"ids/internal/cache"
 	"ids/internal/config"
+	"ids/internal/embeddings"
 	"ids/internal/handlers"
 
 	"github.com/jmoiron/sqlx"
@@ -16,20 +17,35 @@ import (
 
 // Server represents the application server
 type Server struct {
-	echo   *echo.Echo
-	db     *sqlx.DB
-	config *config.Config
-	logger zerolog.Logger
-	cache  *cache.Cache
+	echo             *echo.Echo
+	db               *sqlx.DB
+	config           *config.Config
+	logger           zerolog.Logger
+	cache            *cache.Cache
+	embeddingService *embeddings.EmbeddingService
 }
 
 // New creates a new server instance
 func New(cfg *config.Config, db *sqlx.DB, logger zerolog.Logger) *Server {
+	// Initialize embedding service if OpenAI API key is available
+	// Note: This uses read-only access for the main application
+	var embeddingService *embeddings.EmbeddingService
+	if cfg.OpenAIKey != "" && db != nil {
+		var err error
+		embeddingService, err = embeddings.NewEmbeddingService(cfg, db)
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to initialize embedding service, falling back to regular chat")
+		} else {
+			logger.Info().Msg("Embedding service initialized successfully (read-only mode)")
+		}
+	}
+
 	return &Server{
-		config: cfg,
-		db:     db,
-		logger: logger,
-		cache:  cache.New(),
+		config:           cfg,
+		db:               db,
+		logger:           logger,
+		cache:            cache.New(),
+		embeddingService: embeddingService,
 	}
 }
 
@@ -107,7 +123,13 @@ func (s *Server) setupRoutes() {
 	// API endpoints under /api prefix
 	api.GET("/", handlers.RootHandler(s.config.Version))
 	api.GET("/products", handlers.ProductsHandler(s.db))
-	api.POST("/chat", handlers.ChatHandler(s.db, s.config, s.cache))
+	
+	// Use vector-based chat if embedding service is available, otherwise fall back to regular chat
+	if s.embeddingService != nil {
+		api.POST("/chat", handlers.ChatVectorHandler(s.db, s.config, s.cache, s.embeddingService))
+	} else {
+		api.POST("/chat", handlers.ChatHandler(s.db, s.config, s.cache))
+	}
 
 	// Handle favicon requests
 	s.echo.GET("/favicon.ico", func(c echo.Context) error {

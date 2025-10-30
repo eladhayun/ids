@@ -191,6 +191,8 @@ class ChatBot {
   }
 
   showTypingIndicator() {
+    // Move the typing indicator to the end of the chat messages
+    this.chatMessages.appendChild(this.typingIndicator);
     this.typingIndicator.style.display = 'block';
     this.scrollToBottom();
   }

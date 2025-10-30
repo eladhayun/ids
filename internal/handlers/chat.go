@@ -62,6 +62,31 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache) echo.Handl
 			})
 		}
 
+		// Truncate conversation to prevent token limit issues
+		// Keep only the last user message and truncate its content
+		if len(req.Conversation) > 1 {
+			// Find the last user message
+			for i := len(req.Conversation) - 1; i >= 0; i-- {
+				if strings.Contains(strings.ToLower(req.Conversation[i].Role), "user") {
+					// Truncate the message content to 100 characters max
+					message := req.Conversation[i].Message
+					if len(message) > 100 {
+						message = message[:100] + "..."
+					}
+					req.Conversation = []models.ConversationMessage{
+						{
+							Role:    req.Conversation[i].Role,
+							Message: message,
+						},
+					}
+					break
+				}
+			}
+		}
+
+		// Create OpenAI client
+		client := openai.NewClient(cfg.OpenAIKey)
+
 		// Extract relevant tags from conversation to filter products
 		relevantTags := extractRelevantTags(req.Conversation)
 
@@ -73,23 +98,8 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache) echo.Handl
 			})
 		}
 
-		// Create OpenAI client
-		client := openai.NewClient(cfg.OpenAIKey)
-
-		// Detect language from the latest user message
-		var detectedLang utils.Language
-		if len(req.Conversation) > 0 {
-			// Find the last user message to detect language
-			for i := len(req.Conversation) - 1; i >= 0; i-- {
-				if strings.Contains(strings.ToLower(req.Conversation[i].Role), "user") {
-					detectedLang = utils.DetectLanguage(req.Conversation[i].Message)
-					break
-				}
-			}
-		}
-
 		// Build conversation messages for OpenAI
-		messages := buildOpenAIMessages(req.Conversation, productData.Context, detectedLang)
+		messages := buildOpenAIMessages(req.Conversation, productData.Context, utils.Language{Code: utils.LangEnglish, Name: "English", Confidence: 1.0})
 
 		// Create chat completion request with retry logic
 		var resp openai.ChatCompletionResponse
@@ -104,9 +114,9 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache) echo.Handl
 			resp, apiErr = client.CreateChatCompletion(
 				ctx,
 				openai.ChatCompletionRequest{
-					Model:       openai.GPT4oMini, // Using GPT-4o-mini for faster, more cost-effective responses
+					Model:       openai.GPT4oMini,
 					Messages:    messages,
-					MaxTokens:   800, // Reduced from 1000 to speed up response
+					MaxTokens:   2000,
 					Temperature: 0.7,
 				},
 			)
@@ -142,8 +152,16 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache) echo.Handl
 			})
 		}
 
+		// Create a comprehensive response that includes all products
+		response := resp.Choices[0].Message.Content
+		
+		// If we have many products, add a note about the total count
+		if len(productData.Products) > 3 {
+			response += fmt.Sprintf("\n\n**Note: We have %d total products matching your search. All products are listed above with clickable links.**", len(productData.Products))
+		}
+
 		return c.JSON(http.StatusOK, models.ChatResponse{
-			Response: resp.Choices[0].Message.Content,
+			Response: response,
 			Products: productData.Products,
 		})
 	}
@@ -273,7 +291,6 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 			  p.ID, p.post_title, p.post_name, p.post_content, p.post_excerpt,
 			  l.sku, l.min_price, l.max_price, l.stock_status, l.stock_quantity
 			ORDER BY p.ID
-			LIMIT 20
 		`
 		// Add filter tags as query arguments
 		for _, tag := range filterTags {
@@ -309,7 +326,6 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 			  p.ID, p.post_title, p.post_name, p.post_content, p.post_excerpt,
 			  l.sku, l.min_price, l.max_price, l.stock_status, l.stock_quantity
 			ORDER BY p.ID
-			LIMIT 20
 		`
 		args = nil
 	}
@@ -333,16 +349,13 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 	productMetadata := make(map[string]string)
 
 	if len(filterTags) > 0 {
-		contextBuilder.WriteString(fmt.Sprintf("PRODUCTS (filtered by: %s):\n", strings.Join(filterTags, ", ")))
+		contextBuilder.WriteString(fmt.Sprintf("PRODUCTS (filtered by: %s) - TOTAL COUNT: %d:\n", strings.Join(filterTags, ", "), len(products)))
 	} else {
-		contextBuilder.WriteString("AVAILABLE PRODUCTS:\n")
+		contextBuilder.WriteString(fmt.Sprintf("AVAILABLE PRODUCTS - TOTAL COUNT: %d:\n", len(products)))
 	}
 
-	for i, product := range products {
-		if i >= 3 { // Limit to first 3 products for context to reduce processing time
-			break
-		}
-		// Simplified product format to reduce tokens
+	for _, product := range products {
+		// Very simplified product format to reduce tokens
 		contextBuilder.WriteString(fmt.Sprintf("**%s**", product.PostTitle))
 
 		if product.MinPrice != nil && product.MaxPrice != nil {
@@ -357,15 +370,6 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 			contextBuilder.WriteString(" (Out of Stock)")
 		}
 
-		if product.Tags != nil {
-			contextBuilder.WriteString(fmt.Sprintf(" | Tags: %s", *product.Tags))
-		}
-
-		// Include SKU in context if available
-		if product.SKU != nil && *product.SKU != "" {
-			contextBuilder.WriteString(fmt.Sprintf(" | SKU: %s", *product.SKU))
-		}
-
 		// Store product name -> URL slug mapping for frontend
 		if product.PostName != nil && *product.PostName != "" {
 			productMetadata[product.PostTitle] = *product.PostName
@@ -377,7 +381,7 @@ func getProductDataForContext(db *sqlx.DB, cache *cache.Cache, cacheTTLMinutes i
 		contextBuilder.WriteString("\n")
 	}
 
-	contextBuilder.WriteString("Only recommend in-stock products from this data.\n")
+	contextBuilder.WriteString(fmt.Sprintf("Show a good selection of products from the %d available above. Focus on variety and quality.\n", len(products)))
 
 	productData := &productContextData{
 		Context:  contextBuilder.String(),
@@ -413,6 +417,8 @@ RULES:
 - Provide pricing and availability details
 - Format responses with **bold** for product names
 - Use bullet points for lists
+- Show a good selection of products (5-10) that represent the variety available
+- Mention that there are more products available if the count is high
 
 RESPONSE FORMAT: **[Product Name]** - [Description] - Price: [Price Range]`
 

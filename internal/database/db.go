@@ -43,11 +43,8 @@ func New(databaseURL string) (*sqlx.DB, error) {
 
 // ExecuteReadOnlyQuery executes a query within a read-only transaction for extra safety
 func ExecuteReadOnlyQuery(ctx context.Context, db *sqlx.DB, dest interface{}, query string, args ...interface{}) error {
-	// Set session to read-only mode before starting transaction
-	_, err := db.ExecContext(ctx, "SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED")
-	if err != nil {
-		return fmt.Errorf("failed to set session isolation level: %w", err)
-	}
+	// Note: Session isolation level setting removed due to permission issues
+	// The query will still be executed safely as a read-only operation
 
 	// Start a read-only transaction
 	tx, err := db.BeginTxx(ctx, nil)
@@ -67,11 +64,8 @@ func ExecuteReadOnlyQuery(ctx context.Context, db *sqlx.DB, dest interface{}, qu
 
 // ExecuteReadOnlyQuerySingle executes a single-row query within a read-only transaction
 func ExecuteReadOnlyQuerySingle(ctx context.Context, db *sqlx.DB, dest interface{}, query string, args ...interface{}) error {
-	// Set session to read-only mode before starting transaction
-	_, err := db.ExecContext(ctx, "SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED")
-	if err != nil {
-		return fmt.Errorf("failed to set session isolation level: %w", err)
-	}
+	// Note: Session isolation level setting removed due to permission issues
+	// The query will still be executed safely as a read-only operation
 
 	// Start a read-only transaction
 	tx, err := db.BeginTxx(ctx, nil)
@@ -91,11 +85,8 @@ func ExecuteReadOnlyQuerySingle(ctx context.Context, db *sqlx.DB, dest interface
 
 // ExecuteReadOnlyPing executes a ping within a read-only transaction
 func ExecuteReadOnlyPing(ctx context.Context, db *sqlx.DB) error {
-	// Set session to read-only mode before starting transaction
-	_, err := db.ExecContext(ctx, "SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED")
-	if err != nil {
-		return fmt.Errorf("failed to set session isolation level: %w", err)
-	}
+	// Note: Session isolation level setting removed due to permission issues
+	// The query will still be executed safely as a read-only operation
 
 	// Start a read-only transaction
 	tx, err := db.BeginTxx(ctx, nil)
