@@ -7,6 +7,7 @@ import (
 	"ids/internal/embeddings"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -16,6 +17,23 @@ func main() {
 
 	// Load configuration
 	cfg := config.Load()
+
+	// Wait for SSH tunnel if WAIT_FOR_TUNNEL is set
+	if os.Getenv("WAIT_FOR_TUNNEL") == "true" {
+		fmt.Println("Waiting for SSH tunnel to be ready...")
+		tunnelReadyPath := "/shared/tunnel-ready"
+		for i := 0; i < 60; i++ {
+			if _, err := os.Stat(tunnelReadyPath); err == nil {
+				fmt.Println("SSH tunnel is ready!")
+				break
+			}
+			if i == 59 {
+				log.Fatal("SSH tunnel did not become ready after 60 seconds")
+			}
+			fmt.Printf("Attempt %d/60: Tunnel not ready yet, waiting...\n", i+1)
+			time.Sleep(1 * time.Second)
+		}
+	}
 
 	// Initialize write-enabled database connection
 	fmt.Println("Connecting to database with write access...")
