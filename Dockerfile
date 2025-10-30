@@ -25,7 +25,7 @@ RUN swag init -g cmd/server/main.go -o docs/
 # Build the main application
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./cmd/server
 
-# Build the init-embeddings command
+# Build the init-embeddings-write command
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o init-embeddings-write ./cmd/init-embeddings-write
 
 # Build the update-embeddings command

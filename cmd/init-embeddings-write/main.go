@@ -7,7 +7,6 @@ import (
 	"ids/internal/embeddings"
 	"log"
 	"os"
-	"path/filepath"
 	"time"
 )
 

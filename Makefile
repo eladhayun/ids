@@ -1,9 +1,10 @@
-.PHONY: build run fmt tidy clean test help dev swagger
+.PHONY: build run fmt tidy clean test help dev swagger build-embeddings fmt-embeddings lint-embeddings
 
 # Build configuration
 BINARY_NAME=server
 BUILD_DIR=bin
 CMD_DIR=./cmd/server
+EMBEDDINGS_CMD_DIR=./cmd/init-embeddings-write
 
 # Default target
 all: build
@@ -14,6 +15,13 @@ build:
 	@mkdir -p $(BUILD_DIR)
 	@go build -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_DIR)
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
+
+# Build the embeddings command
+build-embeddings:
+	@echo "Building init-embeddings-write..."
+	@mkdir -p $(BUILD_DIR)
+	@go build -o $(BUILD_DIR)/init-embeddings-write $(EMBEDDINGS_CMD_DIR)
+	@echo "Build complete: $(BUILD_DIR)/init-embeddings-write"
 
 # Run the application
 run: build
@@ -29,6 +37,12 @@ dev:
 fmt:
 	@echo "Formatting Go code..."
 	@go fmt ./...
+
+# Format embeddings command specifically
+fmt-embeddings:
+	@echo "Formatting init-embeddings-write..."
+	@go fmt $(EMBEDDINGS_CMD_DIR)
+	@echo "Formatting complete for init-embeddings-write"
 
 # Tidy up modules
 tidy:
@@ -75,6 +89,23 @@ lint:
 	fi
 	@staticcheck ./...
 	@echo "Linting complete!"
+
+# Lint embeddings command specifically
+lint-embeddings:
+	@echo "Linting init-embeddings-write..."
+	@echo "Running go vet on embeddings command..."
+	@go vet $(EMBEDDINGS_CMD_DIR)
+	@echo "Running staticcheck on embeddings command..."
+	@if ! command -v staticcheck &> /dev/null; then \
+		echo "Installing staticcheck..."; \
+		go install honnef.co/go/tools/cmd/staticcheck@latest; \
+	fi
+	@staticcheck $(EMBEDDINGS_CMD_DIR)
+	@echo "Linting complete for init-embeddings-write!"
+
+# Format, lint, and build embeddings command
+embeddings: fmt-embeddings lint-embeddings build-embeddings
+	@echo "Embeddings command ready: $(BUILD_DIR)/init-embeddings-write"
 
 # Build for production (with optimizations)
 build-prod:
@@ -158,10 +189,19 @@ help:
 	@echo "  swagger      - Generate Swagger documentation"
 	@echo "  docker-build - Build Docker image"
 	@echo "  docker-build-with-swagger - Build Docker image with pre-generated Swagger docs"
+	@echo ""
+	@echo "Embeddings commands:"
+	@echo "  build-embeddings - Build init-embeddings-write command"
+	@echo "  fmt-embeddings   - Format init-embeddings-write command"
+	@echo "  lint-embeddings  - Lint init-embeddings-write command"
+	@echo "  embeddings       - Format, lint, and build embeddings command"
+	@echo ""
+	@echo "Database commands:"
 	@echo "  db-start     - Start MariaDB container"
 	@echo "  db-stop      - Stop MariaDB container"
 	@echo "  db-remove    - Remove MariaDB container"
 	@echo "  db-restart   - Restart MariaDB container"
 	@echo "  db-status    - Check MariaDB container status"
 	@echo "  db-logs      - Show MariaDB container logs"
+	@echo ""
 	@echo "  help         - Show this help message"
