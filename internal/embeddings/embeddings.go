@@ -24,18 +24,18 @@ type EmbeddingService struct {
 // ProductEmbedding represents a product with its vector embedding
 type ProductEmbedding struct {
 	Product    models.Product `json:"product"`
-	Embedding  []float64     `json:"embedding"`
-	Similarity float64       `json:"similarity,omitempty"`
+	Embedding  []float64      `json:"embedding"`
+	Similarity float64        `json:"similarity,omitempty"`
 }
 
 // NewEmbeddingService creates a new embedding service
 func NewEmbeddingService(cfg *config.Config, db *sqlx.DB) (*EmbeddingService, error) {
 	client := openai.NewClient(cfg.OpenAIKey)
-	
+
 	// Test the connection
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	_, err := client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
 		Input: []string{"test"},
 		Model: openai.SmallEmbedding3,
@@ -53,7 +53,7 @@ func NewEmbeddingService(cfg *config.Config, db *sqlx.DB) (*EmbeddingService, er
 // GenerateProductEmbeddings generates embeddings for all products
 func (es *EmbeddingService) GenerateProductEmbeddings() error {
 	fmt.Printf("[EMBEDDING_GEN] ===== STARTING EMBEDDING GENERATION =====\n")
-	
+
 	// Get all products from database
 	query := `
 		SELECT
@@ -99,7 +99,7 @@ func (es *EmbeddingService) GenerateProductEmbeddings() error {
 	batchSize := 100
 	totalBatches := (len(products) + batchSize - 1) / batchSize
 	fmt.Printf("[EMBEDDING_GEN] Processing %d products in %d batches of %d\n", len(products), totalBatches, batchSize)
-	
+
 	for i := 0; i < len(products); i += batchSize {
 		end := i + batchSize
 		if end > len(products) {
@@ -108,13 +108,13 @@ func (es *EmbeddingService) GenerateProductEmbeddings() error {
 
 		batchNum := (i / batchSize) + 1
 		fmt.Printf("[EMBEDDING_GEN] Processing batch %d/%d (products %d-%d)...\n", batchNum, totalBatches, i+1, end)
-		
+
 		batch := products[i:end]
 		if err := es.processBatch(batch); err != nil {
 			fmt.Printf("[EMBEDDING_GEN] ERROR: Failed to process batch %d-%d: %v\n", i, end, err)
 			return fmt.Errorf("failed to process batch %d-%d: %v", i, end, err)
 		}
-		
+
 		fmt.Printf("[EMBEDDING_GEN] Completed batch %d/%d\n", batchNum, totalBatches)
 	}
 
@@ -125,7 +125,7 @@ func (es *EmbeddingService) GenerateProductEmbeddings() error {
 // processBatch processes a batch of products and generates embeddings
 func (es *EmbeddingService) processBatch(products []models.Product) error {
 	fmt.Printf("[EMBEDDING_GEN] Processing batch of %d products\n", len(products))
-	
+
 	// Prepare texts for embedding
 	fmt.Printf("[EMBEDDING_GEN] Building product texts...\n")
 	texts := make([]string, len(products))
@@ -257,7 +257,7 @@ func (es *EmbeddingService) storeEmbedding(product models.Product, embedding []f
 // SearchSimilarProducts finds products similar to the query using vector similarity
 func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]ProductEmbedding, error) {
 	fmt.Printf("[VECTOR_SEARCH] Starting search for query: '%s' with limit: %d\n", query, limit)
-	
+
 	// Generate embedding for the query
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -271,7 +271,7 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 		fmt.Printf("[VECTOR_SEARCH] ERROR: Failed to generate query embedding: %v\n", err)
 		return nil, fmt.Errorf("failed to generate query embedding: %v", err)
 	}
-	
+
 	fmt.Printf("[VECTOR_SEARCH] Query embedding generated successfully (dimensions: %d)\n", len(resp.Data[0].Embedding))
 
 	// Convert []float32 to []float64
@@ -365,7 +365,7 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 			if results[i].Product.StockStatus != nil {
 				stockStatus = *results[i].Product.StockStatus
 			}
-			fmt.Printf("  %d. %s (similarity: %.3f, stock: %s)\n", 
+			fmt.Printf("  %d. %s (similarity: %.3f, stock: %s)\n",
 				i+1, results[i].Product.PostTitle, results[i].Similarity, stockStatus)
 		}
 	}

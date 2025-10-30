@@ -25,11 +25,11 @@ type WriteEmbeddingService struct {
 // NewWriteEmbeddingService creates a new write-enabled embedding service
 func NewWriteEmbeddingService(cfg *config.Config, writeClient *database.WriteClient) (*WriteEmbeddingService, error) {
 	client := openai.NewClient(cfg.OpenAIKey)
-	
+
 	// Test the connection
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	_, err := client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
 		Input: []string{"test"},
 		Model: openai.SmallEmbedding3,
@@ -47,7 +47,7 @@ func NewWriteEmbeddingService(cfg *config.Config, writeClient *database.WriteCli
 // GenerateProductEmbeddings generates embeddings for all products
 func (wes *WriteEmbeddingService) GenerateProductEmbeddings() error {
 	fmt.Printf("[WRITE_EMBEDDING_GEN] ===== STARTING EMBEDDING GENERATION =====\n")
-	
+
 	// Get all products from database
 	query := `
 		SELECT
@@ -91,7 +91,7 @@ func (wes *WriteEmbeddingService) GenerateProductEmbeddings() error {
 	batchSize := 100
 	totalBatches := (len(products) + batchSize - 1) / batchSize
 	fmt.Printf("[WRITE_EMBEDDING_GEN] Processing %d products in %d batches of %d\n", len(products), totalBatches, batchSize)
-	
+
 	for i := 0; i < len(products); i += batchSize {
 		end := i + batchSize
 		if end > len(products) {
@@ -100,13 +100,13 @@ func (wes *WriteEmbeddingService) GenerateProductEmbeddings() error {
 
 		batchNum := (i / batchSize) + 1
 		fmt.Printf("[WRITE_EMBEDDING_GEN] Processing batch %d/%d (products %d-%d)...\n", batchNum, totalBatches, i+1, end)
-		
+
 		batch := products[i:end]
 		if err := wes.processBatch(batch); err != nil {
 			fmt.Printf("[WRITE_EMBEDDING_GEN] ERROR: Failed to process batch %d-%d: %v\n", i, end, err)
 			return fmt.Errorf("failed to process batch %d-%d: %v", i, end, err)
 		}
-		
+
 		fmt.Printf("[WRITE_EMBEDDING_GEN] Completed batch %d/%d\n", batchNum, totalBatches)
 	}
 
@@ -117,7 +117,7 @@ func (wes *WriteEmbeddingService) GenerateProductEmbeddings() error {
 // processBatch processes a batch of products and generates embeddings
 func (wes *WriteEmbeddingService) processBatch(products []models.Product) error {
 	fmt.Printf("[WRITE_EMBEDDING_GEN] Processing batch of %d products\n", len(products))
-	
+
 	// Prepare texts for embedding
 	fmt.Printf("[WRITE_EMBEDDING_GEN] Building product texts...\n")
 	texts := make([]string, len(products))
@@ -262,7 +262,7 @@ func (wes *WriteEmbeddingService) CreateEmbeddingsTable() error {
 // SearchSimilarProducts finds products similar to the query using vector similarity
 func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int) ([]ProductEmbedding, error) {
 	fmt.Printf("[WRITE_VECTOR_SEARCH] Starting search for query: '%s' with limit: %d\n", query, limit)
-	
+
 	// Generate embedding for the query
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -276,7 +276,7 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 		fmt.Printf("[WRITE_VECTOR_SEARCH] ERROR: Failed to generate query embedding: %v\n", err)
 		return nil, fmt.Errorf("failed to generate query embedding: %v", err)
 	}
-	
+
 	fmt.Printf("[WRITE_VECTOR_SEARCH] Query embedding generated successfully (dimensions: %d)\n", len(resp.Data[0].Embedding))
 
 	// Convert []float32 to []float64
@@ -297,7 +297,7 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 	`
 
 	fmt.Printf("[WRITE_VECTOR_SEARCH] Fetching product embeddings from database...\n")
-	
+
 	// We need to manually scan the results since we have a JSON field
 	rows, err := wes.db.GetDB().Query(embeddingsQuery)
 	if err != nil {
@@ -402,7 +402,7 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 			if results[i].Product.StockStatus != nil {
 				stockStatus = *results[i].Product.StockStatus
 			}
-			fmt.Printf("  %d. %s (similarity: %.3f, stock: %s)\n", 
+			fmt.Printf("  %d. %s (similarity: %.3f, stock: %s)\n",
 				i+1, results[i].Product.PostTitle, results[i].Similarity, stockStatus)
 		}
 	}

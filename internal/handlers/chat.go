@@ -154,7 +154,7 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache) echo.Handl
 
 		// Create a comprehensive response that includes all products
 		response := resp.Choices[0].Message.Content
-		
+
 		// If we have many products, add a note about the total count
 		if len(productData.Products) > 3 {
 			response += fmt.Sprintf("\n\n**Note: We have %d total products matching your search. All products are listed above with clickable links.**", len(productData.Products))

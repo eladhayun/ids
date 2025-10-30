@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	_ "github.com/go-sql-driver/mysql"
+	"github.com/jmoiron/sqlx"
 )
 
 // WriteClient provides write access to the database for embedding operations
@@ -19,7 +19,7 @@ type WriteClient struct {
 func NewWriteClient(databaseURL string) (*WriteClient, error) {
 	// Parse the URL to replace read-only user with write user
 	writeURL := convertToWriteURL(databaseURL)
-	
+
 	db, err := sqlx.Connect("mysql", writeURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database with write access: %v", err)

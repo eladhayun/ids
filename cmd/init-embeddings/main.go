@@ -35,7 +35,7 @@ func main() {
 	// Generate embeddings for all products
 	logger.Info().Msg("Generating embeddings for all products...")
 	start := time.Now()
-	
+
 	if err := embeddingService.GenerateProductEmbeddings(); err != nil {
 		logger.Fatal().Err(err).Msg("Failed to generate product embeddings")
 	}

@@ -123,7 +123,7 @@ func (s *Server) setupRoutes() {
 	// API endpoints under /api prefix
 	api.GET("/", handlers.RootHandler(s.config.Version))
 	api.GET("/products", handlers.ProductsHandler(s.db))
-	
+
 	// Use vector-based chat if embedding service is available, otherwise fall back to regular chat
 	if s.embeddingService != nil {
 		api.POST("/chat", handlers.ChatVectorHandler(s.db, s.config, s.cache, s.embeddingService))

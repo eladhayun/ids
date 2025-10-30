@@ -33,7 +33,7 @@ import (
 func ChatVectorHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embeddingService *embeddings.EmbeddingService) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		fmt.Printf("[CHAT_VECTOR] ===== NEW CHAT REQUEST =====\n")
-		
+
 		// Handle case where database connection is not available
 		if db == nil {
 			fmt.Printf("[CHAT_VECTOR] ERROR: Database connection not available\n")
@@ -116,7 +116,6 @@ func ChatVectorHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embe
 			inStockProducts = similarProducts
 		}
 
-
 		// Create product metadata map for frontend
 		fmt.Printf("[CHAT_VECTOR] Creating product metadata for frontend...\n")
 		productMetadata := make(map[string]string)
@@ -137,7 +136,6 @@ func ChatVectorHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embe
 		}
 
 		fmt.Printf("[CHAT_VECTOR] Created metadata for %d products\n", metadataCount)
-
 
 		// Build conversation messages for OpenAI
 		fmt.Printf("[CHAT_VECTOR] Building OpenAI messages...\n")
@@ -198,7 +196,7 @@ func ChatVectorHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embe
 // buildVectorOpenAIMessages creates OpenAI messages with vector search results
 func buildVectorOpenAIMessages(conversation []models.ConversationMessage, products []embeddings.ProductEmbedding, detectedLang utils.Language) []openai.ChatCompletionMessage {
 	fmt.Printf("[BUILD_MESSAGES] Building OpenAI messages with %d products\n", len(products))
-	
+
 	// Create the main system prompt
 	systemPrompt := `You are a sales rep for Israel Defense Store (israeldefensestore.com) specializing in tactical gear.
 

@@ -1,10 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"ids/internal/config"
 	"ids/internal/database"
 	"ids/internal/embeddings"
-	"fmt"
 	"log"
 	"os"
 	"time"
@@ -13,7 +13,7 @@ import (
 func main() {
 	fmt.Println("=== EMBEDDING UPDATE CRON JOB ===")
 	fmt.Printf("Starting at: %s\n", time.Now().Format(time.RFC3339))
-	
+
 	// Load configuration
 	cfg := config.Load()
 
@@ -41,7 +41,7 @@ func main() {
 	// Update embeddings for all products
 	fmt.Println("Updating embeddings for all products...")
 	start := time.Now()
-	
+
 	if err := embeddingService.GenerateProductEmbeddings(); err != nil {
 		log.Fatal("Failed to update product embeddings:", err)
 	}
@@ -49,7 +49,7 @@ func main() {
 	duration := time.Since(start)
 	fmt.Printf("Successfully updated embeddings in %v\n", duration)
 	fmt.Printf("Completed at: %s\n", time.Now().Format(time.RFC3339))
-	
+
 	// Exit with success
 	os.Exit(0)
 }
