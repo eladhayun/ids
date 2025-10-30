@@ -77,95 +77,6 @@ definitions:
         example: 1.0.0
         type: string
     type: object
-  models.PaginationMeta:
-    description: Pagination information
-    properties:
-      has_next:
-        description: Whether there is a next page
-        example: true
-        type: boolean
-      has_prev:
-        description: Whether there is a previous page
-        example: false
-        type: boolean
-      limit:
-        description: Items per page
-        example: 100
-        type: integer
-      page:
-        description: Current page number
-        example: 1
-        type: integer
-      total_count:
-        description: Total number of items
-        example: 500
-        type: integer
-      total_pages:
-        description: Total number of pages
-        example: 5
-        type: integer
-    type: object
-  models.Product:
-    description: Product information
-    properties:
-      description:
-        description: Product description
-        example: Product description
-        type: string
-      id:
-        description: Product ID
-        example: 1
-        type: integer
-      max_price:
-        description: Maximum price
-        example: "20.00"
-        type: string
-      min_price:
-        description: Minimum price
-        example: "10.00"
-        type: string
-      post_name:
-        description: Product URL slug
-        example: sample-product
-        type: string
-      post_title:
-        description: Product title
-        example: Sample Product
-        type: string
-      short_description:
-        description: Short description
-        example: Short desc
-        type: string
-      sku:
-        description: Product SKU
-        example: SKU123
-        type: string
-      stock_quantity:
-        description: Stock quantity
-        example: 100
-        type: integer
-      stock_status:
-        description: Stock status
-        example: instock
-        type: string
-      tags:
-        description: Product tags
-        example: electronics,gadgets
-        type: string
-    type: object
-  models.ProductsResponse:
-    description: Paginated products response
-    properties:
-      data:
-        description: List of products
-        items:
-          $ref: '#/definitions/models.Product'
-        type: array
-      pagination:
-        allOf:
-        - $ref: '#/definitions/models.PaginationMeta'
-        description: Pagination metadata
-    type: object
 info:
   contact: {}
 paths:
@@ -190,7 +101,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Send a conversation to the AI chatbot and get a response
+      description: Send a conversation to the AI chatbot and get a response with vector-based
+        product recommendations
       parameters:
       - description: Chat request
         in: body
@@ -217,7 +129,7 @@ paths:
           description: Service Unavailable
           schema:
             $ref: '#/definitions/models.ChatResponse'
-      summary: Chat with AI
+      summary: Chat with AI using vector search
       tags:
       - chat
   /api/healthz:
@@ -254,37 +166,4 @@ paths:
       summary: Database health check
       tags:
       - health
-  /api/products:
-    get:
-      consumes:
-      - application/json
-      description: Get paginated list of products from the database
-      parameters:
-      - default: 1
-        description: Page number
-        in: query
-        name: page
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.ProductsResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "503":
-          description: Service Unavailable
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Get products
-      tags:
-      - products
 swagger: "2.0"

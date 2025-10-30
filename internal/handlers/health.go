@@ -3,9 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
-	"math"
 	"net/http"
-	"strconv"
 	"time"
 
 	"ids/internal/database"
@@ -111,117 +109,5 @@ func RootHandler(version string) echo.HandlerFunc {
 			"version": version,
 			"status":  "running",
 		})
-	}
-}
-
-// ProductsHandler handles requests to get products with pagination
-// @Summary Get products
-// @Description Get paginated list of products from the database
-// @Tags products
-// @Accept json
-// @Produce json
-// @Param page query int false "Page number" default(1)
-// @Success 200 {object} models.ProductsResponse
-// @Failure 503 {object} map[string]string
-// @Failure 500 {object} map[string]string
-// @Router /api/products [get]
-func ProductsHandler(db *sqlx.DB) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		// Handle case where database connection is not available
-		if db == nil {
-			return c.JSON(http.StatusServiceUnavailable, map[string]string{
-				"error": "Database connection not available",
-			})
-		}
-
-		// Parse pagination parameters
-		page := 1
-		if p := c.QueryParam("page"); p != "" {
-			if parsed, err := strconv.Atoi(p); err == nil && parsed > 0 {
-				page = parsed
-			}
-		}
-
-		limit := 100 // Fixed limit as requested
-		offset := (page - 1) * limit
-
-		// Count total products first
-		countQuery := `
-			SELECT COUNT(DISTINCT p.ID)
-			FROM wpjr_wc_product_meta_lookup l
-			JOIN wpjr_posts p ON p.ID = l.product_id
-			WHERE p.post_type = 'product'
-			  AND p.post_status IN ('publish','private')
-		`
-
-		var totalCount int
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		err := database.ExecuteReadOnlyQuerySingle(ctx, db, &totalCount, countQuery)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": fmt.Sprintf("Failed to count products: %v", err),
-			})
-		}
-
-		// Main query with pagination
-		query := `
-			SELECT
-			  p.ID,
-			  p.post_title,
-			  p.post_name,
-			  p.post_content   AS description,
-			  p.post_excerpt   AS short_description,
-			  l.sku,
-			  l.min_price,
-			  l.max_price,
-			  l.stock_status,
-			  l.stock_quantity,
-			  GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS tags
-			FROM wpjr_wc_product_meta_lookup l
-			JOIN wpjr_posts p ON p.ID = l.product_id
-			LEFT JOIN wpjr_term_relationships tr
-			  ON tr.object_id = p.ID
-			LEFT JOIN wpjr_term_taxonomy tt
-			  ON tt.term_taxonomy_id = tr.term_taxonomy_id
-			  AND tt.taxonomy = 'product_tag'
-			LEFT JOIN wpjr_terms t
-			  ON t.term_id = tt.term_id
-			WHERE p.post_type = 'product'
-			  AND p.post_status IN ('publish','private')
-			GROUP BY
-			  p.ID, p.post_title, p.post_name, p.post_content, p.post_excerpt,
-			  l.sku, l.min_price, l.max_price, l.stock_status, l.stock_quantity
-			ORDER BY p.ID
-			LIMIT ? OFFSET ?
-		`
-
-		var products []models.Product
-		err = database.ExecuteReadOnlyQuery(ctx, db, &products, query, limit, offset)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": fmt.Sprintf("Failed to fetch products: %v", err),
-			})
-		}
-
-		// Calculate pagination metadata
-		totalPages := int(math.Ceil(float64(totalCount) / float64(limit)))
-		hasNext := page < totalPages
-		hasPrev := page > 1
-
-		response := models.ProductsResponse{
-			Data: products,
-			Pagination: models.PaginationMeta{
-				Page:       page,
-				Limit:      limit,
-				TotalCount: totalCount,
-				TotalPages: totalPages,
-				HasNext:    hasNext,
-				HasPrev:    hasPrev,
-			},
-		}
-
-		return c.JSON(http.StatusOK, response)
 	}
 }

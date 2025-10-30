@@ -32,7 +32,7 @@
         },
         "/api/chat": {
             "post": {
-                "description": "Send a conversation to the AI chatbot and get a response",
+                "description": "Send a conversation to the AI chatbot and get a response with vector-based product recommendations",
                 "consumes": [
                     "application/json"
                 ],
@@ -42,7 +42,7 @@
                 "tags": [
                     "chat"
                 ],
-                "summary": "Chat with AI",
+                "summary": "Chat with AI using vector search",
                 "parameters": [
                     {
                         "description": "Chat request",
@@ -129,56 +129,6 @@
                         "description": "Service Unavailable",
                         "schema": {
                             "$ref": "#/definitions/models.DBHealthResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/products": {
-            "get": {
-                "description": "Get paginated list of products from the database",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "products"
-                ],
-                "summary": "Get products",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "default": 1,
-                        "description": "Page number",
-                        "name": "page",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/models.ProductsResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "503": {
-                        "description": "Service Unavailable",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
                         }
                     }
                 }
@@ -287,124 +237,6 @@
                     "description": "Application version",
                     "type": "string",
                     "example": "1.0.0"
-                }
-            }
-        },
-        "models.PaginationMeta": {
-            "description": "Pagination information",
-            "type": "object",
-            "properties": {
-                "has_next": {
-                    "description": "Whether there is a next page",
-                    "type": "boolean",
-                    "example": true
-                },
-                "has_prev": {
-                    "description": "Whether there is a previous page",
-                    "type": "boolean",
-                    "example": false
-                },
-                "limit": {
-                    "description": "Items per page",
-                    "type": "integer",
-                    "example": 100
-                },
-                "page": {
-                    "description": "Current page number",
-                    "type": "integer",
-                    "example": 1
-                },
-                "total_count": {
-                    "description": "Total number of items",
-                    "type": "integer",
-                    "example": 500
-                },
-                "total_pages": {
-                    "description": "Total number of pages",
-                    "type": "integer",
-                    "example": 5
-                }
-            }
-        },
-        "models.Product": {
-            "description": "Product information",
-            "type": "object",
-            "properties": {
-                "description": {
-                    "description": "Product description",
-                    "type": "string",
-                    "example": "Product description"
-                },
-                "id": {
-                    "description": "Product ID",
-                    "type": "integer",
-                    "example": 1
-                },
-                "max_price": {
-                    "description": "Maximum price",
-                    "type": "string",
-                    "example": "20.00"
-                },
-                "min_price": {
-                    "description": "Minimum price",
-                    "type": "string",
-                    "example": "10.00"
-                },
-                "post_name": {
-                    "description": "Product URL slug",
-                    "type": "string",
-                    "example": "sample-product"
-                },
-                "post_title": {
-                    "description": "Product title",
-                    "type": "string",
-                    "example": "Sample Product"
-                },
-                "short_description": {
-                    "description": "Short description",
-                    "type": "string",
-                    "example": "Short desc"
-                },
-                "sku": {
-                    "description": "Product SKU",
-                    "type": "string",
-                    "example": "SKU123"
-                },
-                "stock_quantity": {
-                    "description": "Stock quantity",
-                    "type": "integer",
-                    "example": 100
-                },
-                "stock_status": {
-                    "description": "Stock status",
-                    "type": "string",
-                    "example": "instock"
-                },
-                "tags": {
-                    "description": "Product tags",
-                    "type": "string",
-                    "example": "electronics,gadgets"
-                }
-            }
-        },
-        "models.ProductsResponse": {
-            "description": "Paginated products response",
-            "type": "object",
-            "properties": {
-                "data": {
-                    "description": "List of products",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/models.Product"
-                    }
-                },
-                "pagination": {
-                    "description": "Pagination metadata",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/models.PaginationMeta"
-                        }
-                    ]
                 }
             }
         }

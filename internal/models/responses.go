@@ -20,8 +20,8 @@ type DBHealthResponse struct {
 	Error     string        `json:"error,omitempty" example:""`                 // Error message if any
 }
 
-// Product represents a product from the database
-// @Description Product information
+// Product represents a product from the database (minimal version for embeddings)
+// @Description Product information for embeddings
 type Product struct {
 	ID               int     `json:"id" db:"ID" example:"1"`                                        // Product ID
 	PostTitle        string  `json:"post_title" db:"post_title" example:"Sample Product"`           // Product title
@@ -34,24 +34,6 @@ type Product struct {
 	StockStatus      *string `json:"stock_status" db:"stock_status" example:"instock"`              // Stock status
 	StockQuantity    *int    `json:"stock_quantity" db:"stock_quantity" example:"100"`              // Stock quantity
 	Tags             *string `json:"tags" db:"tags" example:"electronics,gadgets"`                  // Product tags
-}
-
-// PaginationMeta represents pagination metadata
-// @Description Pagination information
-type PaginationMeta struct {
-	Page       int  `json:"page" example:"1"`          // Current page number
-	Limit      int  `json:"limit" example:"100"`       // Items per page
-	TotalCount int  `json:"total_count" example:"500"` // Total number of items
-	TotalPages int  `json:"total_pages" example:"5"`   // Total number of pages
-	HasNext    bool `json:"has_next" example:"true"`   // Whether there is a next page
-	HasPrev    bool `json:"has_prev" example:"false"`  // Whether there is a previous page
-}
-
-// ProductsResponse represents the paginated products response
-// @Description Paginated products response
-type ProductsResponse struct {
-	Data       []Product      `json:"data"`       // List of products
-	Pagination PaginationMeta `json:"pagination"` // Pagination metadata
 }
 
 // ConversationMessage represents a single message in a conversation
