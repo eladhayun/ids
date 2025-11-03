@@ -1,4 +1,4 @@
-name: IDS Backend CI/CD
+name: IDS CI/CD
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
