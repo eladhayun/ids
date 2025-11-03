@@ -13,11 +13,15 @@ import (
 )
 
 func main() {
-	fmt.Println("=== EMBEDDING DAILY SERVICE ===")
+	fmt.Println("=== EMBEDDING SCHEDULED SERVICE ===")
 	fmt.Printf("Starting at: %s\n", time.Now().Format(time.RFC3339))
 
 	// Load configuration
 	cfg := config.Load()
+
+	// Parse embedding schedule interval
+	scheduleInterval := time.Duration(cfg.EmbeddingScheduleHours) * time.Hour
+	scheduleDescription := formatScheduleDescription(cfg.EmbeddingScheduleHours)
 
 	// Wait for SSH tunnel if WAIT_FOR_TUNNEL is set
 	if os.Getenv("WAIT_FOR_TUNNEL") == "true" {
@@ -69,25 +73,26 @@ func main() {
 		fmt.Println("Initial embedding generation completed successfully")
 	}
 
-	// Set up daily execution
-	ticker := time.NewTicker(24 * time.Hour)
+	// Set up scheduled execution
+	ticker := time.NewTicker(scheduleInterval)
 	defer ticker.Stop()
 
-	fmt.Println("Embedding service is now running. Will regenerate embeddings daily.")
+	fmt.Printf("Embedding service is now running. Will regenerate embeddings %s.\n", scheduleDescription)
+	fmt.Printf("Schedule interval: %d hours (%v)\n", cfg.EmbeddingScheduleHours, scheduleInterval)
 	fmt.Println("Press Ctrl+C to stop the service.")
 
 	// Main loop
 	for {
 		select {
 		case <-ticker.C:
-			fmt.Printf("\n=== DAILY EMBEDDING GENERATION TRIGGERED ===\n")
+			fmt.Printf("\n=== SCHEDULED EMBEDDING GENERATION TRIGGERED ===\n")
 			fmt.Printf("Starting at: %s\n", time.Now().Format(time.RFC3339))
 
 			if err := runEmbeddingGeneration(embeddingService); err != nil {
-				log.Printf("ERROR: Daily embedding generation failed: %v", err)
+				log.Printf("ERROR: Scheduled embedding generation failed: %v", err)
 				// Continue running even if one generation fails
 			} else {
-				fmt.Printf("Daily embedding generation completed successfully at: %s\n", time.Now().Format(time.RFC3339))
+				fmt.Printf("Scheduled embedding generation completed successfully at: %s\n", time.Now().Format(time.RFC3339))
 			}
 
 		case sig := <-sigChan:
@@ -108,4 +113,26 @@ func runEmbeddingGeneration(embeddingService *embeddings.WriteEmbeddingService) 
 	duration := time.Since(start)
 	fmt.Printf("Successfully generated embeddings in %v\n", duration)
 	return nil
+}
+
+// formatScheduleDescription returns a human-readable description of the schedule
+func formatScheduleDescription(hours int) string {
+	switch {
+	case hours < 24:
+		return fmt.Sprintf("every %d hour(s)", hours)
+	case hours == 24:
+		return "daily"
+	case hours == 168:
+		return "weekly"
+	case hours == 336:
+		return "bi-weekly"
+	case hours == 720:
+		return "monthly"
+	default:
+		days := float64(hours) / 24.0
+		if days == float64(int(days)) {
+			return fmt.Sprintf("every %d day(s)", int(days))
+		}
+		return fmt.Sprintf("every %d hours", hours)
+	}
 }

@@ -12,13 +12,14 @@ import (
 
 // Config holds all configuration for the application
 type Config struct {
-	Port          string
-	DatabaseURL   string
-	Version       string
-	LogLevel      string
-	OpenAIKey     string
-	WaitForTunnel bool // Whether to wait for SSH tunnel to be ready
-	OpenAITimeout int  // OpenAI API timeout in seconds
+	Port                   string
+	DatabaseURL            string
+	Version                string
+	LogLevel               string
+	OpenAIKey              string
+	WaitForTunnel          bool // Whether to wait for SSH tunnel to be ready
+	OpenAITimeout          int  // OpenAI API timeout in seconds
+	EmbeddingScheduleHours int  // Embedding generation schedule interval in hours
 }
 
 // Load initializes and returns application configuration
@@ -29,13 +30,14 @@ func Load() *Config {
 	}
 
 	config := &Config{
-		Port:          getEnv("PORT", "8080"),
-		DatabaseURL:   os.Getenv("DATABASE_URL"),
-		Version:       getEnv("VERSION", "1.0.0"),
-		LogLevel:      getEnv("LOG_LEVEL", "info"),
-		OpenAIKey:     os.Getenv("OPENAI_API_KEY"),
-		WaitForTunnel: getEnvBool("WAIT_FOR_TUNNEL", true), // Default true for production safety
-		OpenAITimeout: getEnvInt("OPENAI_TIMEOUT", 60),     // Default 60 seconds
+		Port:                   getEnv("PORT", "8080"),
+		DatabaseURL:            os.Getenv("DATABASE_URL"),
+		Version:                getEnv("VERSION", "1.0.0"),
+		LogLevel:               getEnv("LOG_LEVEL", "info"),
+		OpenAIKey:              os.Getenv("OPENAI_API_KEY"),
+		WaitForTunnel:          getEnvBool("WAIT_FOR_TUNNEL", true),                 // Default true for production safety
+		OpenAITimeout:          getEnvInt("OPENAI_TIMEOUT", 60),                     // Default 60 seconds
+		EmbeddingScheduleHours: getEnvInt("EMBEDDING_SCHEDULE_INTERVAL_HOURS", 168), // Default 168 hours (1 week)
 	}
 
 	return config
