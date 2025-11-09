@@ -89,7 +89,7 @@ func ChatVectorHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embe
 
 		// Search for similar products using vector embeddings
 		fmt.Printf("[CHAT_VECTOR] Starting vector search for products...\n")
-		similarProducts, err := embeddingService.SearchSimilarProducts(userQuery, 20) // Get top 20 most similar products
+		similarProducts, fallbackToSimilarity, err := embeddingService.SearchSimilarProducts(userQuery, 20) // Get top 20 most similar products
 		if err != nil {
 			fmt.Printf("[CHAT_VECTOR] ERROR: Vector search failed: %v\n", err)
 			return c.JSON(http.StatusInternalServerError, models.ChatResponse{
@@ -139,7 +139,7 @@ func ChatVectorHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embe
 
 		// Build conversation messages for OpenAI
 		fmt.Printf("[CHAT_VECTOR] Building OpenAI messages...\n")
-		messages := buildVectorOpenAIMessages(req.Conversation, inStockProducts, utils.Language{Code: utils.LangEnglish, Name: "English", Confidence: 1.0})
+		messages := buildVectorOpenAIMessages(req.Conversation, inStockProducts, utils.Language{Code: utils.LangEnglish, Name: "English", Confidence: 1.0}, fallbackToSimilarity)
 		fmt.Printf("[CHAT_VECTOR] Built %d messages for OpenAI\n", len(messages))
 
 		// Create OpenAI client
@@ -194,8 +194,8 @@ func ChatVectorHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embe
 }
 
 // buildVectorOpenAIMessages creates OpenAI messages with vector search results
-func buildVectorOpenAIMessages(conversation []models.ConversationMessage, products []embeddings.ProductEmbedding, detectedLang utils.Language) []openai.ChatCompletionMessage {
-	fmt.Printf("[BUILD_MESSAGES] Building OpenAI messages with %d products\n", len(products))
+func buildVectorOpenAIMessages(conversation []models.ConversationMessage, products []embeddings.ProductEmbedding, detectedLang utils.Language, fallbackToSimilarity bool) []openai.ChatCompletionMessage {
+	fmt.Printf("[BUILD_MESSAGES] Building OpenAI messages with %d products (fallback=%t)\n", len(products), fallbackToSimilarity)
 
 	// Create the main system prompt
 	systemPrompt := `You are a sales rep for Israel Defense Store (israeldefensestore.com) specializing in tactical gear.
@@ -211,8 +211,19 @@ RULES:
 - Use bullet points for lists
 - Show the most relevant products first (they are ranked by similarity)
 - Include similarity scores when helpful
+- When a customer asks for a link or URL, include the direct product link using the provided slug (Format: https://israeldefensestore.com/product/<slug>). If the slug is missing, use https://israeldefensestore.com/?p=<product_id>
 
 RESPONSE FORMAT: **[Product Name]** - [Description] - Price: [Price Range] - Similarity: [Score]`
+
+	if fallbackToSimilarity {
+		systemPrompt += `
+
+IMPORTANT:
+- Exact compatibility matches were not found for this query.
+- Present the listed products as the closest available alternatives.
+- Do NOT tell the customer the product is unavailable; instead say these options are similar or compatible alternatives.
+- Clearly explain any differences (model, generation, etc.) when relevant.`
+	}
 
 	// Add language instruction
 	languageInstruction := utils.GetLanguageInstruction(detectedLang)
@@ -220,7 +231,11 @@ RESPONSE FORMAT: **[Product Name]** - [Description] - Price: [Price Range] - Sim
 	// Build product context from vector search results
 	fmt.Printf("[BUILD_MESSAGES] Building product context...\n")
 	var productContext strings.Builder
-	productContext.WriteString("RELEVANT PRODUCTS (ranked by similarity to your query):\n\n")
+	if fallbackToSimilarity {
+		productContext.WriteString("SIMILAR ALTERNATIVES (ranked by similarity to your query):\n\n")
+	} else {
+		productContext.WriteString("RELEVANT PRODUCTS (ranked by similarity to your query):\n\n")
+	}
 
 	contextProducts := 0
 	for i, product := range products {
@@ -256,6 +271,13 @@ RESPONSE FORMAT: **[Product Name]** - [Description] - Price: [Price Range] - Sim
 		// Add tags if available
 		if product.Product.Tags != nil && *product.Product.Tags != "" {
 			productContext.WriteString(fmt.Sprintf(" - Tags: %s", *product.Product.Tags))
+		}
+
+		// Add URL information
+		if product.Product.PostName != nil && *product.Product.PostName != "" {
+			productContext.WriteString(fmt.Sprintf(" - URL: https://israeldefensestore.com/product/%s", *product.Product.PostName))
+		} else {
+			productContext.WriteString(fmt.Sprintf(" - URL: https://israeldefensestore.com/?p=%d", product.Product.ID))
 		}
 
 		productContext.WriteString("\n")

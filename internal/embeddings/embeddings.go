@@ -10,6 +10,7 @@ import (
 
 	"ids/internal/config"
 	"ids/internal/models"
+	"ids/internal/utils"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/sashabaranov/go-openai"
@@ -17,8 +18,9 @@ import (
 
 // EmbeddingService handles vector embeddings for products
 type EmbeddingService struct {
-	client *openai.Client
-	db     *sqlx.DB
+	client      *openai.Client
+	db          *sqlx.DB
+	tagTokenSet map[string]struct{}
 }
 
 // ProductEmbedding represents a product with its vector embedding
@@ -44,10 +46,47 @@ func NewEmbeddingService(cfg *config.Config, db *sqlx.DB) (*EmbeddingService, er
 		return nil, fmt.Errorf("failed to connect to OpenAI API: %v", err)
 	}
 
-	return &EmbeddingService{
+	service := &EmbeddingService{
 		client: client,
 		db:     db,
-	}, nil
+	}
+
+	if err := service.loadTagTokens(); err != nil {
+		fmt.Printf("[EMBEDDING_SERVICE] WARNING: Failed to load tag tokens for filtering: %v\n", err)
+	}
+
+	return service, nil
+}
+
+func (es *EmbeddingService) loadTagTokens() error {
+	fmt.Printf("[EMBEDDING_SERVICE] Loading product tag tokens for query filtering...\n")
+
+	query := `
+		SELECT DISTINCT t.name
+		FROM wpjr_terms t
+		JOIN wpjr_term_taxonomy tt ON tt.term_id = t.term_id
+		WHERE tt.taxonomy = 'product_tag'
+	`
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var tagNames []string
+	if err := es.db.SelectContext(ctx, &tagNames, query); err != nil {
+		return fmt.Errorf("failed to load product tags: %w", err)
+	}
+
+	tokenSet := make(map[string]struct{})
+	for _, name := range tagNames {
+		tokens := utils.ExtractMeaningfulTokens(name)
+		for _, token := range tokens {
+			tokenSet[token] = struct{}{}
+		}
+	}
+
+	es.tagTokenSet = tokenSet
+	fmt.Printf("[EMBEDDING_SERVICE] Loaded %d unique tag tokens\n", len(tokenSet))
+	return nil
 }
 
 // GenerateProductEmbeddings generates embeddings for all products
@@ -255,7 +294,7 @@ func (es *EmbeddingService) storeEmbedding(product models.Product, embedding []f
 }
 
 // SearchSimilarProducts finds products similar to the query using vector similarity
-func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]ProductEmbedding, error) {
+func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]ProductEmbedding, bool, error) {
 	fmt.Printf("[VECTOR_SEARCH] Starting search for query: '%s' with limit: %d\n", query, limit)
 
 	// Generate embedding for the query
@@ -269,7 +308,7 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 	})
 	if err != nil {
 		fmt.Printf("[VECTOR_SEARCH] ERROR: Failed to generate query embedding: %v\n", err)
-		return nil, fmt.Errorf("failed to generate query embedding: %v", err)
+		return nil, false, fmt.Errorf("failed to generate query embedding: %v", err)
 	}
 
 	fmt.Printf("[VECTOR_SEARCH] Query embedding generated successfully (dimensions: %d)\n", len(resp.Data[0].Embedding))
@@ -282,20 +321,46 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 
 	// Get all product embeddings from database
 	embeddingsQuery := `
-		SELECT pe.product_id, pe.embedding, p.post_title, p.post_name, p.post_content, p.post_excerpt,
-			l.sku, l.min_price, l.max_price, l.stock_status, l.stock_quantity
+		SELECT
+			pe.product_id,
+			pe.embedding,
+			p.post_title,
+			p.post_name,
+			p.post_content,
+			p.post_excerpt,
+			l.sku,
+			l.min_price,
+			l.max_price,
+			l.stock_status,
+			l.stock_quantity,
+			GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS tags
 		FROM product_embeddings pe
 		JOIN wpjr_posts p ON p.ID = pe.product_id
 		JOIN wpjr_wc_product_meta_lookup l ON l.product_id = p.ID
+		LEFT JOIN wpjr_term_relationships tr ON tr.object_id = p.ID
+		LEFT JOIN wpjr_term_taxonomy tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'product_tag'
+		LEFT JOIN wpjr_terms t ON t.term_id = tt.term_id
 		WHERE p.post_type = 'product'
 			AND p.post_status IN ('publish','private')
+		GROUP BY
+			pe.product_id,
+			pe.embedding,
+			p.post_title,
+			p.post_name,
+			p.post_content,
+			p.post_excerpt,
+			l.sku,
+			l.min_price,
+			l.max_price,
+			l.stock_status,
+			l.stock_quantity
 	`
 
 	fmt.Printf("[VECTOR_SEARCH] Fetching product embeddings from database...\n")
 	rows, err := es.db.QueryContext(ctx, embeddingsQuery)
 	if err != nil {
 		fmt.Printf("[VECTOR_SEARCH] ERROR: Failed to fetch product embeddings: %v\n", err)
-		return nil, fmt.Errorf("failed to fetch product embeddings: %v", err)
+		return nil, false, fmt.Errorf("failed to fetch product embeddings: %v", err)
 	}
 	defer rows.Close()
 
@@ -320,6 +385,7 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 			&product.MaxPrice,
 			&product.StockStatus,
 			&product.StockQuantity,
+			&product.Tags,
 		)
 		if err != nil {
 			skippedCount++
@@ -370,6 +436,31 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 		}
 	}
 
+	requiredTokens := es.requiredTokensFromQuery(query)
+	fallbackToSimilarity := false
+	if len(requiredTokens) > 0 {
+		fmt.Printf("[VECTOR_SEARCH] Applying exact-match filtering with tokens: %v\n", requiredTokens)
+
+		var filteredResults []ProductEmbedding
+		for _, result := range results {
+			productTokenSet := buildProductTokenSet(result.Product)
+			if ok, missing := utils.ContainsAllTokens(productTokenSet, requiredTokens); ok {
+				filteredResults = append(filteredResults, result)
+			} else {
+				fmt.Printf("[VECTOR_SEARCH] Filtering out product %d (%s); missing tokens: %v\n",
+					result.Product.ID, result.Product.PostTitle, missing)
+			}
+		}
+
+		if len(filteredResults) > 0 {
+			results = filteredResults
+			fmt.Printf("[VECTOR_SEARCH] %d products remain after token filtering\n", len(results))
+		} else {
+			fmt.Printf("[VECTOR_SEARCH] Token filtering removed all products, keeping similarity results\n")
+			fallbackToSimilarity = true
+		}
+	}
+
 	// Return top results
 	if limit > 0 && limit < len(results) {
 		fmt.Printf("[VECTOR_SEARCH] Limiting results to top %d (from %d total)\n", limit, len(results))
@@ -377,7 +468,7 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 	}
 
 	fmt.Printf("[VECTOR_SEARCH] Returning %d products\n", len(results))
-	return results, nil
+	return results, fallbackToSimilarity, nil
 }
 
 // cosineSimilarity calculates cosine similarity between two vectors
@@ -398,6 +489,58 @@ func (es *EmbeddingService) cosineSimilarity(a, b []float64) float64 {
 	}
 
 	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
+}
+
+func (es *EmbeddingService) requiredTokensFromQuery(query string) []string {
+	if strings.TrimSpace(query) == "" {
+		return nil
+	}
+
+	tokens := utils.ExtractMeaningfulTokens(query)
+	if len(tokens) == 0 {
+		return nil
+	}
+
+	required := make([]string, 0, len(tokens))
+	seen := make(map[string]struct{})
+
+	for _, token := range tokens {
+		_, isKnownTagToken := es.tagTokenSet[token]
+		if !isKnownTagToken && !utils.TokenHasDigit(token) {
+			continue
+		}
+
+		if _, alreadyAdded := seen[token]; alreadyAdded {
+			continue
+		}
+
+		required = append(required, token)
+		seen[token] = struct{}{}
+	}
+
+	return required
+}
+
+func buildProductTokenSet(product models.Product) map[string]struct{} {
+	values := []string{product.PostTitle}
+
+	if product.PostName != nil {
+		values = append(values, *product.PostName)
+	}
+	if product.SKU != nil {
+		values = append(values, *product.SKU)
+	}
+	if product.Tags != nil {
+		values = append(values, *product.Tags)
+	}
+	if product.ShortDescription != nil {
+		values = append(values, *product.ShortDescription)
+	}
+	if product.Description != nil {
+		values = append(values, *product.Description)
+	}
+
+	return utils.BuildTokenSet(values...)
 }
 
 // CreateEmbeddingsTable creates the table for storing product embeddings
