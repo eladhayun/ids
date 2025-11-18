@@ -2,6 +2,9 @@ package handlers
 
 import (
 	"strings"
+
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 // ShippingPolicyResponse is the canned response for shipping inquiries
@@ -43,13 +46,14 @@ func IsShippingInquiry(message string) (bool, string) {
 	}
 
 	detectedCountry := "your country"
+	caser := cases.Title(language.English)
 	for _, country := range countries {
 		if strings.Contains(lowerMsg, country) {
 			// Capitalize first letter for display
 			if len(country) <= 3 {
 				detectedCountry = strings.ToUpper(country)
 			} else {
-				detectedCountry = strings.Title(country)
+				detectedCountry = caser.String(country)
 			}
 			break
 		}
