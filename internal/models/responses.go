@@ -23,17 +23,17 @@ type DBHealthResponse struct {
 // Product represents a product from the database (minimal version for embeddings)
 // @Description Product information for embeddings
 type Product struct {
-	ID               int     `json:"id" db:"ID" example:"1"`                                        // Product ID
-	PostTitle        string  `json:"post_title" db:"post_title" example:"Sample Product"`           // Product title
-	PostName         *string `json:"post_name" db:"post_name" example:"sample-product"`             // Product URL slug
-	Description      *string `json:"description" db:"description" example:"Product description"`    // Product description
-	ShortDescription *string `json:"short_description" db:"short_description" example:"Short desc"` // Short description
-	SKU              *string `json:"sku" db:"sku" example:"SKU123"`                                 // Product SKU
-	MinPrice         *string `json:"min_price" db:"min_price" example:"10.00"`                      // Minimum price
-	MaxPrice         *string `json:"max_price" db:"max_price" example:"20.00"`                      // Maximum price
-	StockStatus      *string `json:"stock_status" db:"stock_status" example:"instock"`              // Stock status
-	StockQuantity    *int    `json:"stock_quantity" db:"stock_quantity" example:"100"`              // Stock quantity
-	Tags             *string `json:"tags" db:"tags" example:"electronics,gadgets"`                  // Product tags
+	ID               int      `json:"id" db:"ID" example:"1"`                                        // Product ID
+	PostTitle        string   `json:"post_title" db:"post_title" example:"Sample Product"`           // Product title
+	PostName         *string  `json:"post_name" db:"post_name" example:"sample-product"`             // Product URL slug
+	Description      *string  `json:"description" db:"description" example:"Product description"`    // Product description
+	ShortDescription *string  `json:"short_description" db:"short_description" example:"Short desc"` // Short description
+	SKU              *string  `json:"sku" db:"sku" example:"SKU123"`                                 // Product SKU
+	MinPrice         *string  `json:"min_price" db:"min_price" example:"10.00"`                      // Minimum price
+	MaxPrice         *string  `json:"max_price" db:"max_price" example:"20.00"`                      // Maximum price
+	StockStatus      *string  `json:"stock_status" db:"stock_status" example:"instock"`              // Stock status
+	StockQuantity    *float64 `json:"stock_quantity" db:"stock_quantity" example:"100"`              // Stock quantity
+	Tags             *string  `json:"tags" db:"tags" example:"electronics,gadgets"`                  // Product tags
 }
 
 // ConversationMessage represents a single message in a conversation

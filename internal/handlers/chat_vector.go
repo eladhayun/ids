@@ -87,6 +87,16 @@ func ChatVectorHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embe
 
 		fmt.Printf("[CHAT_VECTOR] Extracted user query: '%s'\n", userQuery)
 
+		// Check for shipping inquiry
+		if isShipping, country := IsShippingInquiry(userQuery); isShipping {
+			fmt.Printf("[CHAT_VECTOR] Detected shipping inquiry for country: %s\n", country)
+			response := GetShippingResponse(country)
+			return c.JSON(http.StatusOK, models.ChatResponse{
+				Response: response,
+				Products: make(map[string]string), // No products for shipping inquiry
+			})
+		}
+
 		// Search for similar products using vector embeddings
 		fmt.Printf("[CHAT_VECTOR] Starting vector search for products...\n")
 		similarProducts, fallbackToSimilarity, err := embeddingService.SearchSimilarProducts(userQuery, 20) // Get top 20 most similar products
@@ -201,6 +211,12 @@ func buildVectorOpenAIMessages(conversation []models.ConversationMessage, produc
 	systemPrompt := `You are a sales rep for Israel Defense Store (israeldefensestore.com) specializing in tactical gear.
 
 ROLE: Help customers find tactical gear products. You have access to a list of relevant products found using advanced vector search.
+
+COMPATIBILITY CHECK (CRITICAL):
+- If the user asks for a specific gun model (e.g., "Hellcat", "M&P Shield", "P365", "Glock 19"), you MUST verify that the product explicitly lists this model in its tags or description.
+- If a product is for a DIFFERENT model (e.g., user asks for Hellcat but product is for Glock), do NOT recommend it as a direct match.
+- If NO exact match is found for the specific model, explicitly state: "I couldn't find an exact match for [User's Model] in our current inventory."
+- You may then suggest similar items ONLY if you clearly label them as "Alternative for [Product's Actual Model]" and warn the user they might not fit.
 
 RULES:
 - Only recommend products from the provided list
