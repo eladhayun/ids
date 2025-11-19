@@ -26,6 +26,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.25'
+          cache: true
 
       - name: Install dependencies
         run: |
@@ -51,7 +52,19 @@ jobs:
           staticcheck ./...
 
       - name: Run tests
-        run: go test -v ./...
+        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Generate coverage report
+        run: go tool cover -html=coverage.out -o coverage.html
+        if: always()
+
+      - name: Upload coverage report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.html
+          retention-days: 30
+        if: always()
 
       - name: Build application
         run: go build -o bin/server ./cmd/server
