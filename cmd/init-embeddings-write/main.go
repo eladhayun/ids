@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"ids/internal/config"
 	"ids/internal/database"
@@ -13,7 +14,15 @@ import (
 )
 
 func main() {
-	fmt.Println("=== EMBEDDING SCHEDULED SERVICE ===")
+	// Parse command-line flags
+	runOnce := flag.Bool("once", false, "Run embeddings generation once and exit (default: false, runs continuously)")
+	flag.Parse()
+
+	if *runOnce {
+		fmt.Println("=== EMBEDDING GENERATION (ONE-TIME RUN) ===")
+	} else {
+		fmt.Println("=== EMBEDDING SCHEDULED SERVICE ===")
+	}
 	fmt.Printf("Starting at: %s\n", time.Now().Format(time.RFC3339))
 
 	// Load configuration
@@ -66,18 +75,28 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	// Run initial embedding generation
-	fmt.Println("Running initial embedding generation...")
+	fmt.Println("Running embedding generation...")
 	if err := runEmbeddingGeneration(embeddingService); err != nil {
-		log.Printf("ERROR: Initial embedding generation failed: %v", err)
+		log.Printf("ERROR: Embedding generation failed: %v", err)
+		if *runOnce {
+			os.Exit(1)
+		}
 	} else {
-		fmt.Println("Initial embedding generation completed successfully")
+		fmt.Println("Embedding generation completed successfully")
 	}
 
-	// Set up scheduled execution
+	// If running once, exit cleanly
+	if *runOnce {
+		fmt.Println("One-time run completed. Exiting.")
+		return
+	}
+
+	// Set up scheduled execution (production mode)
 	ticker := time.NewTicker(scheduleInterval)
 	defer ticker.Stop()
 
-	fmt.Printf("Embedding service is now running. Will regenerate embeddings %s.\n", scheduleDescription)
+	fmt.Printf("\nEmbedding service is now running in scheduled mode.\n")
+	fmt.Printf("Will regenerate embeddings %s.\n", scheduleDescription)
 	fmt.Printf("Schedule interval: %d hours (%v)\n", cfg.EmbeddingScheduleHours, scheduleInterval)
 	fmt.Println("Press Ctrl+C to stop the service.")
 

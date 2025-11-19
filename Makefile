@@ -1,4 +1,4 @@
-.PHONY: build run fmt tidy clean test help dev swagger build-embeddings fmt-embeddings lint-embeddings
+.PHONY: build run fmt tidy clean test help dev swagger build-embeddings fmt-embeddings lint-embeddings run-embeddings test-race test-all test-short test-package bench bench-package coverage-report test-clean
 
 # Build configuration
 BINARY_NAME=server
@@ -66,6 +66,52 @@ test-coverage:
 	@go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
 
+# Run tests with race detection
+test-race:
+	@echo "Running tests with race detection..."
+	@go test -v -race ./...
+
+# Run tests with race detection and coverage
+test-all:
+	@echo "Running comprehensive tests..."
+	@go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
+	@go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated: coverage.html"
+
+# Run short tests only (skip long-running tests)
+test-short:
+	@echo "Running short tests..."
+	@go test -v -short ./...
+
+# Run tests for specific package
+test-package:
+	@echo "Running tests for package: $(PKG)"
+	@go test -v ./$(PKG)
+
+# Run benchmarks
+bench:
+	@echo "Running benchmarks..."
+	@go test -bench=. -benchmem ./...
+
+# Run benchmarks for specific package
+bench-package:
+	@echo "Running benchmarks for package: $(PKG)"
+	@go test -bench=. -benchmem ./$(PKG)
+
+# Show test coverage in terminal
+coverage-report:
+	@echo "Generating coverage report..."
+	@go test -coverprofile=coverage.out ./...
+	@go tool cover -func=coverage.out
+	@echo ""
+	@echo "For detailed HTML report, open coverage.html"
+
+# Clean test cache
+test-clean:
+	@echo "Cleaning test cache..."
+	@go clean -testcache
+	@echo "Test cache cleaned"
+
 # Clean build artifacts
 clean:
 	@echo "Cleaning up..."
@@ -107,6 +153,17 @@ lint-embeddings:
 embeddings: fmt-embeddings lint-embeddings build-embeddings
 	@echo "Embeddings command ready: $(BUILD_DIR)/init-embeddings-write"
 
+# Run embeddings generation once (loads .env and runs full generation, then exits)
+run-embeddings: build-embeddings
+	@echo "Running embeddings generation (one-time run)..."
+	@if [ ! -f .env ]; then \
+		echo "Error: .env file not found in root directory"; \
+		exit 1; \
+	fi
+	@echo "Loading environment variables from .env..."
+	@export $$(cat .env | grep -v '^#' | xargs) && ./$(BUILD_DIR)/init-embeddings-write --once
+	@echo "Embeddings generation complete!"
+
 # Build for production (with optimizations)
 build-prod:
 	@echo "Building for production..."
@@ -137,40 +194,6 @@ docker-build-with-swagger: swagger
 	@echo "Building Docker image with pre-generated Swagger docs..."
 	@docker build -t ids-api .
 
-# Database management
-db-start:
-	@echo "Starting MariaDB container..."
-	@docker stop mariadb 2>/dev/null || true
-	@docker rm mariadb 2>/dev/null || true
-	@docker run -d \
-		--name mariadb \
-		-e MYSQL_ROOT_PASSWORD=my-secret-pw \
-		-e MYSQL_DATABASE=isrealde_wp654 \
-		-v $(PWD)/isrealde_wp654.sql:/docker-entrypoint-initdb.d/dump.sql \
-		-p 3306:3306 \
-		mariadb:10.6.23
-	@echo "MariaDB container started on port 3306"
-
-db-stop:
-	@echo "Stopping MariaDB container..."
-	@docker stop mariadb || true
-	@echo "MariaDB container stopped"
-
-db-remove:
-	@echo "Removing MariaDB container..."
-	@docker rm mariadb || true
-	@echo "MariaDB container removed"
-
-db-restart: db-stop db-remove db-start
-
-db-status:
-	@echo "Checking MariaDB container status..."
-	@docker ps -f name=mariadb
-
-db-logs:
-	@echo "Showing MariaDB container logs..."
-	@docker logs mariadb
-
 # Help
 help:
 	@echo "Available commands:"
@@ -180,8 +203,6 @@ help:
 	@echo "  fmt          - Format Go code"
 	@echo "  tidy         - Tidy up Go modules"
 	@echo "  deps         - Download dependencies"
-	@echo "  test         - Run tests"
-	@echo "  test-coverage - Run tests with coverage report"
 	@echo "  clean        - Clean build artifacts"
 	@echo "  install-tools - Install development tools"
 	@echo "  lint         - Lint the code"
@@ -190,18 +211,23 @@ help:
 	@echo "  docker-build - Build Docker image"
 	@echo "  docker-build-with-swagger - Build Docker image with pre-generated Swagger docs"
 	@echo ""
+	@echo "Test commands:"
+	@echo "  test         - Run tests"
+	@echo "  test-coverage - Run tests with coverage report"
+	@echo "  test-race    - Run tests with race detection"
+	@echo "  test-all     - Run comprehensive tests (race + coverage)"
+	@echo "  test-short   - Run only short tests"
+	@echo "  test-package - Run tests for specific package (use PKG=<package>)"
+	@echo "  bench        - Run benchmarks"
+	@echo "  bench-package - Run benchmarks for specific package (use PKG=<package>)"
+	@echo "  coverage-report - Show coverage report in terminal"
+	@echo "  test-clean   - Clean test cache"
+	@echo ""
 	@echo "Embeddings commands:"
 	@echo "  build-embeddings - Build init-embeddings-write command"
 	@echo "  fmt-embeddings   - Format init-embeddings-write command"
 	@echo "  lint-embeddings  - Lint init-embeddings-write command"
 	@echo "  embeddings       - Format, lint, and build embeddings command"
-	@echo ""
-	@echo "Database commands:"
-	@echo "  db-start     - Start MariaDB container"
-	@echo "  db-stop      - Stop MariaDB container"
-	@echo "  db-remove    - Remove MariaDB container"
-	@echo "  db-restart   - Restart MariaDB container"
-	@echo "  db-status    - Check MariaDB container status"
-	@echo "  db-logs      - Show MariaDB container logs"
+	@echo "  run-embeddings   - Run embeddings generation once and exit (loads .env)"
 	@echo ""
 	@echo "  help         - Show this help message"
