@@ -7,6 +7,9 @@
 		{
 			"name": "gitops",
 			"path": "../gitops"
+		},
+		{
+			"path": "../terraform"
 		}
 	],
 	"settings": {}
