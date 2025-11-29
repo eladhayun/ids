@@ -238,12 +238,12 @@ echo "===== Email Import Complete ====="`,
 				},
 				Resources: corev1.ResourceRequirements{
 					Requests: corev1.ResourceList{
-						corev1.ResourceMemory: resourceQuantity("512Mi"),
-						corev1.ResourceCPU:    resourceQuantity("250m"),
+						corev1.ResourceMemory: resourceQuantity("1Gi"),
+						corev1.ResourceCPU:    resourceQuantity("500m"),
 					},
 					Limits: corev1.ResourceList{
-						corev1.ResourceMemory: resourceQuantity("2Gi"),
-						corev1.ResourceCPU:    resourceQuantity("1000m"),
+						corev1.ResourceMemory: resourceQuantity("4Gi"),
+						corev1.ResourceCPU:    resourceQuantity("2000m"),
 					},
 				},
 			},
@@ -253,7 +253,7 @@ echo "===== Email Import Complete ====="`,
 				Name: "email-data",
 				VolumeSource: corev1.VolumeSource{
 					EmptyDir: &corev1.EmptyDirVolumeSource{
-						SizeLimit: resourceQuantityPtr("5Gi"),
+						SizeLimit: resourceQuantityPtr("75Gi"),
 					},
 				},
 			},
