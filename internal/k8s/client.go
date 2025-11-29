@@ -122,24 +122,67 @@ func (c *Client) buildPodSpec(containerImage string) corev1.PodSpec {
 					"/bin/sh",
 					"-c",
 					`set -e
-echo "===== Downloading emails from Azure Blob Storage ====="
+echo ""
+echo "==========================================="
+echo "  EMAIL DOWNLOAD FROM AZURE BLOB STORAGE"
+echo "==========================================="
+echo "Storage: ${AZURE_STORAGE_ACCOUNT}"
+echo "Container: ${AZURE_CONTAINER_NAME}"
+echo "Started: $(date '+%Y-%m-%d %H:%M:%S')"
+echo ""
+
 mkdir -p /emails
-az storage blob download-batch \
+START_TIME=$(date +%s)
+
+echo "Listing files..."
+FILE_LIST=$(az storage blob list \
   --account-name ${AZURE_STORAGE_ACCOUNT} \
   --account-key ${AZURE_STORAGE_KEY} \
-  --source ${AZURE_CONTAINER_NAME} \
-  --destination /emails \
-  --pattern "*.eml" \
-  --output table
-az storage blob download-batch \
-  --account-name ${AZURE_STORAGE_ACCOUNT} \
-  --account-key ${AZURE_STORAGE_KEY} \
-  --source ${AZURE_CONTAINER_NAME} \
-  --destination /emails \
-  --pattern "*.mbox" \
-  --output table
-echo "===== Download complete ====="
-ls -lh /emails`,
+  --container-name ${AZURE_CONTAINER_NAME} \
+  --output json 2>/dev/null)
+
+TOTAL_FILES=$(echo "$FILE_LIST" | jq -r '. | length')
+echo "Found $TOTAL_FILES file(s) to download"
+echo ""
+
+CURRENT=0
+echo "$FILE_LIST" | jq -r '.[].name' | while read -r filename; do
+  CURRENT=$((CURRENT + 1))
+  echo "[$CURRENT/$TOTAL_FILES] Downloading: $filename"
+  
+  az storage blob download \
+    --account-name ${AZURE_STORAGE_ACCOUNT} \
+    --account-key ${AZURE_STORAGE_KEY} \
+    --container-name ${AZURE_CONTAINER_NAME} \
+    --name "$filename" \
+    --file "/emails/$filename" \
+    --no-progress \
+    --output none 2>&1 || echo "  WARNING: Failed to download $filename"
+  
+  CURRENT_SIZE=$(du -hs /emails 2>/dev/null | cut -f1)
+  echo "  -> Total downloaded so far: $CURRENT_SIZE"
+  echo ""
+done
+
+END_TIME=$(date +%s)
+DURATION=$((END_TIME - START_TIME))
+MINUTES=$((DURATION / 60))
+SECONDS=$((DURATION % 60))
+
+FINAL_SIZE=$(du -hs /emails 2>/dev/null | cut -f1)
+FILE_COUNT=$(find /emails -type f 2>/dev/null | wc -l | tr -d ' ')
+
+echo "==========================================="
+echo "  DOWNLOAD COMPLETE"
+echo "==========================================="
+echo "Finished: $(date '+%Y-%m-%d %H:%M:%S')"
+echo "Duration: ${MINUTES}m ${SECONDS}s"
+echo "Files: $FILE_COUNT"
+echo "Total Size: $FINAL_SIZE"
+echo ""
+echo "Files downloaded:"
+ls -lh /emails 2>/dev/null | tail -n +2 | awk '{print "  " $9 " - " $5}'
+echo "==========================================="`,
 				},
 				Env: []corev1.EnvVar{
 					{
