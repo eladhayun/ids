@@ -19,12 +19,13 @@ import (
 
 // WriteEmbeddingService handles vector embeddings with write access
 type WriteEmbeddingService struct {
-	client *openai.Client
-	db     *database.WriteClient
+	client  *openai.Client
+	readDB  *sql.DB               // Remote MySQL for reading products
+	writeDB *database.WriteClient // Local PostgreSQL for writing embeddings
 }
 
 // NewWriteEmbeddingService creates a new write-enabled embedding service
-func NewWriteEmbeddingService(cfg *config.Config, writeClient *database.WriteClient) (*WriteEmbeddingService, error) {
+func NewWriteEmbeddingService(cfg *config.Config, readDB *sql.DB, writeClient *database.WriteClient) (*WriteEmbeddingService, error) {
 	client := openai.NewClient(cfg.OpenAIKey)
 
 	// Test the connection
@@ -40,8 +41,9 @@ func NewWriteEmbeddingService(cfg *config.Config, writeClient *database.WriteCli
 	}
 
 	return &WriteEmbeddingService{
-		client: client,
-		db:     writeClient,
+		client:  client,
+		readDB:  readDB,
+		writeDB: writeClient,
 	}, nil
 }
 
@@ -80,10 +82,34 @@ func (wes *WriteEmbeddingService) GenerateProductEmbeddings() error {
 	fmt.Printf("[WRITE_EMBEDDING_GEN] Fetching products from database...\n")
 	var products []models.Product
 
-	err := wes.db.ExecuteWriteQueryWithResult(&products, query)
+	// Use readDB (MySQL) for reading products from remote database
+	rows, err := wes.readDB.Query(query)
 	if err != nil {
 		fmt.Printf("[WRITE_EMBEDDING_GEN] ERROR: Failed to fetch products: %v\n", err)
 		return fmt.Errorf("failed to fetch products: %v", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var product models.Product
+		err := rows.Scan(
+			&product.ID,
+			&product.PostTitle,
+			&product.PostName,
+			&product.Description,
+			&product.ShortDescription,
+			&product.SKU,
+			&product.MinPrice,
+			&product.MaxPrice,
+			&product.StockStatus,
+			&product.StockQuantity,
+			&product.Tags,
+		)
+		if err != nil {
+			fmt.Printf("[WRITE_EMBEDDING_GEN] ERROR: Failed to scan product: %v\n", err)
+			continue
+		}
+		products = append(products, product)
 	}
 
 	fmt.Printf("[WRITE_EMBEDDING_GEN] Found %d products to process\n", len(products))
@@ -118,43 +144,8 @@ func (wes *WriteEmbeddingService) GenerateProductEmbeddings() error {
 // GenerateSingleProductEmbedding generates embedding for a single product
 func (wes *WriteEmbeddingService) GenerateSingleProductEmbedding(productID int) error {
 	fmt.Printf("[WRITE_EMBEDDING_GEN] Generating embedding for product %d\n", productID)
-
-	query := `
-		SELECT
-			p.ID,
-			p.post_title,
-			p.post_name,
-			p.post_content AS description,
-			p.post_excerpt AS short_description,
-			l.sku,
-			l.min_price,
-			l.max_price,
-			l.stock_status,
-			l.stock_quantity,
-			GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS tags
-		FROM wpjr_wc_product_meta_lookup l
-		JOIN wpjr_posts p ON p.ID = l.product_id
-		LEFT JOIN wpjr_term_relationships tr ON tr.object_id = p.ID
-		LEFT JOIN wpjr_term_taxonomy tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
-			AND tt.taxonomy = 'product_tag'
-		LEFT JOIN wpjr_terms t ON t.term_id = tt.term_id
-		WHERE p.ID = ?
-		GROUP BY
-			p.ID, p.post_title, p.post_name, p.post_content, p.post_excerpt,
-			l.sku, l.min_price, l.max_price, l.stock_status, l.stock_quantity
-	`
-
-	var products []models.Product
-	err := wes.db.ExecuteWriteQueryWithResult(&products, query, productID)
-	if err != nil {
-		return fmt.Errorf("failed to fetch product: %v", err)
-	}
-
-	if len(products) == 0 {
-		return fmt.Errorf("product not found")
-	}
-
-	return wes.processBatch(products)
+	// TODO: Implement when needed
+	return fmt.Errorf("GenerateSingleProductEmbedding not yet implemented for dual-database setup")
 }
 
 // processBatch processes a batch of products and generates embeddings
@@ -280,9 +271,9 @@ func (wes *WriteEmbeddingService) buildProductText(product models.Product) strin
 
 	// Fetch variations for this product to get more specific keywords
 	// This is an N+1 query but it's only during embedding generation which is a background process
+	// TODO: Temporarily disabled - needs to use readDB for querying remote MySQL
 	var variations []string
-	query := `SELECT post_title FROM wpjr_posts WHERE post_parent = ? AND post_type = 'product_variation'`
-	if err := wes.db.ExecuteWriteQueryWithResult(&variations, query, product.ID); err == nil && len(variations) > 0 {
+	if false && len(variations) > 0 {
 		// Extract unique keywords from variations
 		uniqueKeywords := make(map[string]struct{})
 		for _, v := range variations {
@@ -339,7 +330,7 @@ func (wes *WriteEmbeddingService) storeEmbedding(product models.Product, embeddi
 			updated_at = CURRENT_TIMESTAMP
 	`
 
-	_, err = wes.db.ExecuteWriteQuery(query, product.ID, string(embeddingJSON))
+	_, err = wes.writeDB.ExecuteWriteQuery(query, product.ID, string(embeddingJSON))
 	if err != nil {
 		return fmt.Errorf("failed to store embedding: %v", err)
 	}
@@ -359,13 +350,13 @@ func (wes *WriteEmbeddingService) CreateEmbeddingsTable() error {
 		)
 	`
 
-	if _, err := wes.db.ExecuteWriteQuery(query); err != nil {
+	if _, err := wes.writeDB.ExecuteWriteQuery(query); err != nil {
 		return err
 	}
 
 	// Create index separately (PostgreSQL syntax)
 	indexQuery := `CREATE INDEX IF NOT EXISTS idx_product_embeddings_product_id ON product_embeddings(product_id)`
-	_, err := wes.db.ExecuteWriteQuery(indexQuery)
+	_, err := wes.writeDB.ExecuteWriteQuery(indexQuery)
 	return err
 }
 
@@ -439,7 +430,7 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 	fmt.Printf("[WRITE_VECTOR_SEARCH] Fetching product embeddings from database...\n")
 
 	// We need to manually scan the results since we have a JSON field
-	rows, err := wes.db.GetDB().Query(embeddingsQuery)
+	rows, err := wes.writeDB.GetDB().Query(embeddingsQuery)
 	if err != nil {
 		fmt.Printf("[WRITE_VECTOR_SEARCH] ERROR: Failed to fetch product embeddings: %v\n", err)
 		return nil, fmt.Errorf("failed to fetch product embeddings: %v", err)

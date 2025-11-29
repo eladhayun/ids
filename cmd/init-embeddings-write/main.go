@@ -49,17 +49,25 @@ func main() {
 		}
 	}
 
-	// Initialize write-enabled database connection (local MariaDB for embeddings)
+	// Initialize read connection to remote MySQL database for products
+	fmt.Println("Connecting to remote database for product reads...")
+	readDB, err := database.New(cfg.DatabaseURL)
+	if err != nil {
+		log.Fatal("Failed to connect to remote database:", err)
+	}
+	defer readDB.Close()
+
+	// Initialize write-enabled database connection (local PostgreSQL for embeddings)
 	fmt.Println("Connecting to embeddings database with write access...")
 	writeClient, err := database.NewWriteClient(cfg.EmbeddingsDatabaseURL)
 	if err != nil {
-		log.Fatal("Failed to connect to database with write access:", err)
+		log.Fatal("Failed to connect to embeddings database with write access:", err)
 	}
 	defer writeClient.Close()
 
-	// Create write-enabled embedding service
+	// Create write-enabled embedding service with both connections
 	fmt.Println("Initializing embedding service...")
-	embeddingService, err := embeddings.NewWriteEmbeddingService(cfg, writeClient)
+	embeddingService, err := embeddings.NewWriteEmbeddingService(cfg, readDB.DB, writeClient)
 	if err != nil {
 		log.Fatal("Failed to create embedding service:", err)
 	}

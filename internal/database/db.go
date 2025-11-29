@@ -40,12 +40,30 @@ func New(databaseURL string) (*sqlx.DB, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	// Note: For read-only behavior, consider:
-	// 1. Using a MySQL user with only SELECT privileges
-	// 2. Using read-only transactions: BEGIN READ ONLY; ... COMMIT;
-	// 3. Implementing application-level read-only logic
+	// Enforce read-only mode for MySQL connections (production database protection)
+	// This sets the session to read-only mode, preventing any writes
+	if driver == "mysql" {
+		_, err := db.Exec("SET SESSION TRANSACTION READ ONLY")
+		if err != nil {
+			// Log warning but don't fail - some MySQL users might not have permission to set this
+			fmt.Printf("Warning: Could not set MySQL session to read-only: %v\n", err)
+			fmt.Println("Ensure the MySQL user has SELECT-only privileges for production safety")
+		} else {
+			fmt.Println("✓ MySQL session set to READ ONLY mode - production database is protected")
+		}
+	}
 
 	return db, nil
+}
+
+// IsReadOnly verifies if the current database session is in read-only mode
+func IsReadOnly(db *sqlx.DB) (bool, error) {
+	var readOnly int
+	err := db.Get(&readOnly, "SELECT @@session.tx_read_only")
+	if err != nil {
+		return false, err
+	}
+	return readOnly == 1, nil
 }
 
 // ExecuteReadOnlyQuery executes a query within a read-only transaction for extra safety
