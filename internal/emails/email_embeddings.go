@@ -203,7 +203,7 @@ func (ees *EmailEmbeddingService) GenerateEmailEmbeddings() error {
 	// Get emails without embeddings
 	query := `
 		SELECT e.id, e.message_id, e.subject, e.from_addr, e.to_addr, e.date, 
-		       e.body, e.thread_id, e.in_reply_to, ` + "`references`" + `, e.is_customer
+		       e.body, e.thread_id, e.in_reply_to, e."references", e.is_customer
 		FROM emails e
 		LEFT JOIN email_embeddings ee ON ee.email_id = e.id
 		WHERE ee.id IS NULL
@@ -388,7 +388,7 @@ func (ees *EmailEmbeddingService) generateThreadEmbedding(threadID string) error
 	// Get all emails in thread
 	query := `
 		SELECT id, message_id, subject, from_addr, to_addr, date, body, thread_id, 
-		       in_reply_to, ` + "`references`" + `, is_customer
+		       in_reply_to, "references", is_customer
 		FROM emails
 		WHERE thread_id = ?
 		ORDER BY date ASC
