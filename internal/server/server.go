@@ -155,6 +155,7 @@ func (s *Server) setupRoutes() {
 	admin.POST("/trigger-email-import", handlers.TriggerEmailImportHandler(s.config))
 	admin.GET("/email-import-status/:jobName", handlers.GetEmailImportStatusHandler(s.config))
 	admin.POST("/import-emails-to-db", handlers.ProcessEmailsFromStorage)
+	admin.POST("/generate-thread-embeddings", handlers.GenerateThreadEmbeddingsHandler)
 
 	// Handle favicon requests
 	s.echo.GET("/favicon.ico", func(c echo.Context) error {
