@@ -235,14 +235,14 @@ func (ees *EmailEmbeddingService) GenerateEmailEmbeddings() error {
 	for rows.Next() {
 		var email models.Email
 		var threadID, inReplyTo, references *string
-		var dateStr string
+		// PostgreSQL returns timestamps directly as time.Time
 		err := rows.Scan(
 			&email.ID,
 			&email.MessageID,
 			&email.Subject,
 			&email.From,
 			&email.To,
-			&dateStr,
+			&email.Date,
 			&email.Body,
 			&threadID,
 			&inReplyTo,
@@ -252,13 +252,6 @@ func (ees *EmailEmbeddingService) GenerateEmailEmbeddings() error {
 		if err != nil {
 			fmt.Printf("[EMAIL_EMBEDDINGS] Warning: Failed to scan email: %v\n", err)
 			continue
-		}
-
-		// Parse date string
-		email.Date, err = time.Parse("2006-01-02 15:04:05", dateStr)
-		if err != nil {
-			fmt.Printf("[EMAIL_EMBEDDINGS] Warning: Failed to parse date: %v\n", err)
-			email.Date = time.Now()
 		}
 
 		email.ThreadID = threadID
@@ -352,30 +345,17 @@ func (ees *EmailEmbeddingService) GenerateThreadEmbeddings() error {
 	var threads []models.EmailThread
 	for rows.Next() {
 		var thread models.EmailThread
-		var firstDateStr, lastDateStr string
+		// PostgreSQL returns timestamps directly as time.Time, no parsing needed
 		err := rows.Scan(
 			&thread.ThreadID,
 			&thread.Subject,
 			&thread.EmailCount,
-			&firstDateStr,
-			&lastDateStr,
+			&thread.FirstDate,
+			&thread.LastDate,
 		)
 		if err != nil {
 			fmt.Printf("[THREAD_EMBEDDINGS] Warning: Failed to scan thread: %v\n", err)
 			continue
-		}
-
-		// Parse dates
-		thread.FirstDate, err = time.Parse("2006-01-02 15:04:05", firstDateStr)
-		if err != nil {
-			fmt.Printf("[THREAD_EMBEDDINGS] Warning: Failed to parse first_date: %v\n", err)
-			thread.FirstDate = time.Now()
-		}
-
-		thread.LastDate, err = time.Parse("2006-01-02 15:04:05", lastDateStr)
-		if err != nil {
-			fmt.Printf("[THREAD_EMBEDDINGS] Warning: Failed to parse last_date: %v\n", err)
-			thread.LastDate = time.Now()
 		}
 
 		threads = append(threads, thread)
@@ -419,14 +399,14 @@ func (ees *EmailEmbeddingService) generateThreadEmbedding(threadID string) error
 	for rows.Next() {
 		var email models.Email
 		var threadIDPtr, inReplyTo, references *string
-		var dateStr string
+		// PostgreSQL returns timestamps directly as time.Time
 		err := rows.Scan(
 			&email.ID,
 			&email.MessageID,
 			&email.Subject,
 			&email.From,
 			&email.To,
-			&dateStr,
+			&email.Date,
 			&email.Body,
 			&threadIDPtr,
 			&inReplyTo,
@@ -435,12 +415,6 @@ func (ees *EmailEmbeddingService) generateThreadEmbedding(threadID string) error
 		)
 		if err != nil {
 			return err
-		}
-
-		// Parse date
-		email.Date, err = time.Parse("2006-01-02 15:04:05", dateStr)
-		if err != nil {
-			email.Date = time.Now()
 		}
 
 		email.ThreadID = threadIDPtr
