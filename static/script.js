@@ -202,7 +202,7 @@ class ChatBot {
   }
 
   async sendToBackend(message) {
-    const response = await fetch('/api/chat', {
+    const response = await fetch('/api/chat/enhanced', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
