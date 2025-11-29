@@ -190,23 +190,28 @@ func ProcessEmailsFromStorage(c echo.Context) error {
 // findFiles recursively finds all files with the given extension
 func findFiles(root, ext string) ([]string, error) {
 	var files []string
-
+	
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		// Skip directories with permission errors (like lost+found)
 		if err != nil {
+			if os.IsPermission(err) {
+				fmt.Printf("[EMAIL_PROCESS] Skipping %s due to permission error\n", path)
+				return filepath.SkipDir
+			}
 			return err
 		}
-
+		
 		// Skip lost+found directory (common in PVCs)
 		if info.IsDir() && info.Name() == "lost+found" {
 			return filepath.SkipDir
 		}
-
+		
 		if !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ext) {
 			files = append(files, path)
 		}
-
+		
 		return nil
 	})
-
+	
 	return files, err
 }
