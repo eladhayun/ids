@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"ids/internal/config"
@@ -77,7 +78,12 @@ func TriggerEmailImportHandler(cfg *config.Config) echo.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		containerImage := "prodacr1234.azurecr.io/ids-backend:latest"
+		// Use the correct image name from environment or default to the production image
+		containerImage := os.Getenv("EMAIL_IMPORT_IMAGE")
+		if containerImage == "" {
+			containerImage = "prodacr1234.azurecr.io/ids:latest"
+		}
+
 		if err := k8sClient.CreateEmailImportJob(ctx, jobName, containerImage); err != nil {
 			fmt.Printf("[EMAIL_IMPORT_JOB] Failed to create job: %v\n", err)
 			return c.JSON(http.StatusInternalServerError, TriggerEmailImportResponse{
