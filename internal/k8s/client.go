@@ -328,8 +328,3 @@ func resourceQuantity(value string) resource.Quantity {
 	}
 	return qty
 }
-
-func resourceQuantityPtr(value string) *resource.Quantity {
-	qty := resourceQuantity(value)
-	return &qty
-}
