@@ -85,3 +85,6 @@ config/local.json
 isrealde_wp654.sql
 
 server
+
+source-emails/
+email-archive.zip

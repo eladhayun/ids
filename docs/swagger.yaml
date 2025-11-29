@@ -1,4 +1,38 @@
 definitions:
+  handlers.JobStatus:
+    properties:
+      active:
+        type: integer
+      completion_time:
+        type: string
+      failed:
+        type: integer
+      job_name:
+        type: string
+      start_time:
+        type: string
+      status:
+        type: string
+      succeeded:
+        type: integer
+    type: object
+  handlers.TriggerEmailImportRequest:
+    properties:
+      source:
+        description: 'Optional: specific source/path in blob storage'
+        type: string
+    type: object
+  handlers.TriggerEmailImportResponse:
+    properties:
+      error:
+        type: string
+      job_name:
+        type: string
+      message:
+        type: string
+      success:
+        type: boolean
+    type: object
   models.ChatRequest:
     description: Chat request payload
     properties:
@@ -97,6 +131,69 @@ paths:
       summary: Root endpoint
       tags:
       - general
+  /api/admin/email-import-status/{jobName}:
+    get:
+      consumes:
+      - application/json
+      description: Gets the current status of an email import job
+      parameters:
+      - description: Job name
+        in: path
+        name: jobName
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.JobStatus'
+        "404":
+          description: Not Found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get email import job status
+      tags:
+      - admin
+  /api/admin/trigger-email-import:
+    post:
+      consumes:
+      - application/json
+      description: Triggers a Kubernetes Job that downloads emails from Azure Blob
+        Storage and imports them into the database
+      parameters:
+      - description: Import job parameters
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/handlers.TriggerEmailImportRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handlers.TriggerEmailImportResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handlers.TriggerEmailImportResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/handlers.TriggerEmailImportResponse'
+      summary: Trigger email import job
+      tags:
+      - admin
   /api/chat:
     post:
       consumes:
@@ -130,6 +227,41 @@ paths:
           schema:
             $ref: '#/definitions/models.ChatResponse'
       summary: Chat with AI using vector search
+      tags:
+      - chat
+  /api/chat/enhanced:
+    post:
+      consumes:
+      - application/json
+      description: Send a conversation to the AI chatbot and get a response with product
+        recommendations enhanced by similar past conversations
+      parameters:
+      - description: Chat request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.ChatRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.ChatResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ChatResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ChatResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/models.ChatResponse'
+      summary: Chat with AI using enhanced vector search (products + email history)
       tags:
       - chat
   /api/healthz:

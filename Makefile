@@ -1,10 +1,11 @@
-.PHONY: build run fmt tidy clean test help dev swagger build-embeddings fmt-embeddings lint-embeddings run-embeddings test-race test-all test-short test-package bench bench-package coverage-report test-clean
+.PHONY: build run fmt tidy clean test help dev swagger build-embeddings fmt-embeddings lint-embeddings run-embeddings build-import-emails import-emails import-emails-eml import-emails-mbox test-race test-all test-short test-package bench bench-package coverage-report test-clean
 
 # Build configuration
 BINARY_NAME=server
 BUILD_DIR=bin
 CMD_DIR=./cmd/server
 EMBEDDINGS_CMD_DIR=./cmd/init-embeddings-write
+IMPORT_EMAILS_CMD_DIR=./cmd/import-emails
 
 # Default target
 all: build
@@ -22,6 +23,56 @@ build-embeddings:
 	@mkdir -p $(BUILD_DIR)
 	@go build -o $(BUILD_DIR)/init-embeddings-write $(EMBEDDINGS_CMD_DIR)
 	@echo "Build complete: $(BUILD_DIR)/init-embeddings-write"
+
+# Build the email import command
+build-import-emails:
+	@echo "Building import-emails..."
+	@mkdir -p $(BUILD_DIR)
+	@go build -o $(BUILD_DIR)/import-emails $(IMPORT_EMAILS_CMD_DIR)
+	@echo "Build complete: $(BUILD_DIR)/import-emails"
+
+# Import emails from EML files or directory
+import-emails-eml: build-import-emails
+	@if [ -z "$(PATH_TO_EMAILS)" ]; then \
+		echo "Error: PATH_TO_EMAILS not specified"; \
+		echo "Usage: make import-emails-eml PATH_TO_EMAILS=/path/to/emails"; \
+		exit 1; \
+	fi
+	@echo "Importing EML files from: $(PATH_TO_EMAILS)"
+	@./$(BUILD_DIR)/import-emails -eml $(PATH_TO_EMAILS)
+
+# Import emails from MBOX file
+import-emails-mbox: build-import-emails
+	@if [ -z "$(PATH_TO_MBOX)" ]; then \
+		echo "Error: PATH_TO_MBOX not specified"; \
+		echo "Usage: make import-emails-mbox PATH_TO_MBOX=/path/to/mailbox.mbox"; \
+		exit 1; \
+	fi
+	@echo "Importing MBOX file: $(PATH_TO_MBOX)"
+	@./$(BUILD_DIR)/import-emails -mbox $(PATH_TO_MBOX)
+
+# Import emails (auto-detect EML directory or MBOX file)
+import-emails: build-import-emails
+	@if [ -z "$(EMAIL_PATH)" ]; then \
+		echo "Error: EMAIL_PATH not specified"; \
+		echo "Usage:"; \
+		echo "  make import-emails EMAIL_PATH=/path/to/emails       # For EML files/directory"; \
+		echo "  make import-emails EMAIL_PATH=/path/to/file.mbox    # For MBOX file"; \
+		exit 1; \
+	fi
+	@if [ -f "$(EMAIL_PATH)" ] && echo "$(EMAIL_PATH)" | grep -q "\.mbox$$"; then \
+		echo "Detected MBOX file: $(EMAIL_PATH)"; \
+		./$(BUILD_DIR)/import-emails -mbox $(EMAIL_PATH); \
+	elif [ -f "$(EMAIL_PATH)" ] && echo "$(EMAIL_PATH)" | grep -q "\.eml$$"; then \
+		echo "Detected EML file: $(EMAIL_PATH)"; \
+		./$(BUILD_DIR)/import-emails -eml $(EMAIL_PATH); \
+	elif [ -d "$(EMAIL_PATH)" ]; then \
+		echo "Detected directory: $(EMAIL_PATH)"; \
+		./$(BUILD_DIR)/import-emails -eml $(EMAIL_PATH); \
+	else \
+		echo "Error: $(EMAIL_PATH) is not a valid file or directory"; \
+		exit 1; \
+	fi
 
 # Run the application
 run: build
@@ -229,5 +280,14 @@ help:
 	@echo "  lint-embeddings  - Lint init-embeddings-write command"
 	@echo "  embeddings       - Format, lint, and build embeddings command"
 	@echo "  run-embeddings   - Run embeddings generation once and exit (loads .env)"
+	@echo ""
+	@echo "Email commands:"
+	@echo "  build-import-emails - Build import-emails command"
+	@echo "  import-emails       - Import emails (auto-detect format)"
+	@echo "                        Usage: make import-emails EMAIL_PATH=/path/to/emails"
+	@echo "  import-emails-eml   - Import EML files/directory"
+	@echo "                        Usage: make import-emails-eml PATH_TO_EMAILS=/path/to/emails"
+	@echo "  import-emails-mbox  - Import MBOX file"
+	@echo "                        Usage: make import-emails-mbox PATH_TO_MBOX=/path/to/file.mbox"
 	@echo ""
 	@echo "  help         - Show this help message"

@@ -41,6 +41,101 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/admin/email-import-status/{jobName}": {
+            "get": {
+                "description": "Gets the current status of an email import job",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Get email import job status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Job name",
+                        "name": "jobName",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.JobStatus"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/admin/trigger-email-import": {
+            "post": {
+                "description": "Triggers a Kubernetes Job that downloads emails from Azure Blob Storage and imports them into the database",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Trigger email import job",
+                "parameters": [
+                    {
+                        "description": "Import job parameters",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.TriggerEmailImportRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.TriggerEmailImportResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.TriggerEmailImportResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/handlers.TriggerEmailImportResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/chat": {
             "post": {
                 "description": "Send a conversation to the AI chatbot and get a response with vector-based product recommendations",
@@ -54,6 +149,58 @@ const docTemplate = `{
                     "chat"
                 ],
                 "summary": "Chat with AI using vector search",
+                "parameters": [
+                    {
+                        "description": "Chat request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.ChatRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.ChatResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ChatResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ChatResponse"
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "$ref": "#/definitions/models.ChatResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/chat/enhanced": {
+            "post": {
+                "description": "Send a conversation to the AI chatbot and get a response with product recommendations enhanced by similar past conversations",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "Chat with AI using enhanced vector search (products + email history)",
                 "parameters": [
                     {
                         "description": "Chat request",
@@ -147,6 +294,58 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "handlers.JobStatus": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "integer"
+                },
+                "completion_time": {
+                    "type": "string"
+                },
+                "failed": {
+                    "type": "integer"
+                },
+                "job_name": {
+                    "type": "string"
+                },
+                "start_time": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "succeeded": {
+                    "type": "integer"
+                }
+            }
+        },
+        "handlers.TriggerEmailImportRequest": {
+            "type": "object",
+            "properties": {
+                "source": {
+                    "description": "Optional: specific source/path in blob storage",
+                    "type": "string"
+                }
+            }
+        },
+        "handlers.TriggerEmailImportResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "job_name": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                }
+            }
+        },
         "models.ChatRequest": {
             "description": "Chat request payload",
             "type": "object",

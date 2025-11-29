@@ -7,6 +7,7 @@ This document describes the IDS API server with product management and AI-powere
 IDS (Israel Defense Store API) is a tactical gear e-commerce API server that provides:
 - Vector-based semantic product search using OpenAI embeddings
 - AI-powered chat assistant for product recommendations
+- **Email conversation import and context enhancement** (NEW!)
 - Health monitoring endpoints
 - Swagger/OpenAPI documentation
 - Static web interface for customer support
@@ -28,6 +29,7 @@ The API includes comprehensive Swagger/OpenAPI documentation that can be accesse
 - **GET** `/api/healthz` - Basic health check
 - **GET** `/api/healthz/db` - Database health check
 - **POST** `/api/chat` - Chat with AI assistant (uses vector search when embeddings are available)
+- **POST** `/api/chat/enhanced` - Enhanced chat with product search + email conversation context
 
 ## Quick Start
 
@@ -144,6 +146,97 @@ This command:
 - Can be run on-demand or scheduled (includes built-in daily execution mode)
 
 **Note**: The command requires write access to the database and will create the necessary tables automatically.
+
+## Email Import & Context Enhancement
+
+### Overview
+
+The system can import email conversations (EML and MBOX files) and use them to enhance chat responses. The AI learns from past customer interactions to provide better, more contextual answers.
+
+### Features
+
+- **Parse Email Files**: Import individual EML files or entire MBOX archives
+- **Thread Detection**: Automatically groups related emails into conversations
+- **Vector Embeddings**: Generate semantic embeddings for intelligent search
+- **Enhanced Chat**: Chat responses enhanced with insights from similar past conversations
+- **Dual Search**: Searches both products AND relevant email history
+
+### Quick Start
+
+```bash
+# Build the email import tool
+make build-import-emails
+
+# Import EML files from a directory
+./bin/import-emails -eml /path/to/emails/directory
+
+# Import MBOX file (e.g., Gmail export)
+./bin/import-emails -mbox /path/to/mailbox.mbox
+
+# Import without generating embeddings (faster)
+./bin/import-emails -eml /path/to/emails -embeddings=false
+```
+
+### Using Enhanced Chat
+
+The enhanced chat endpoint combines product search with email context:
+
+```bash
+curl -X POST http://localhost:8080/api/chat/enhanced \
+  -H "Content-Type: application/json" \
+  -d '{
+    "conversation": [
+      {
+        "role": "user",
+        "message": "I need an OWB holster for Glock 19"
+      }
+    ]
+  }'
+```
+
+The AI will:
+1. Find similar products using vector search
+2. Find similar past email conversations
+3. Use insights from past successful interactions
+4. Provide better, more contextual responses
+
+### Azure Blob Storage Email Import (Production)
+
+For production deployments, use Azure Blob Storage + Kubernetes Jobs:
+
+```bash
+# 1. Upload emails to Azure Blob Storage
+az storage blob upload-batch \
+  --account-name prodstorage1234 \
+  --source /path/to/emails \
+  --destination email-imports
+
+# 2. Trigger import job via API
+curl -X POST http://your-backend-url/api/admin/trigger-email-import
+
+# 3. Monitor job status
+kubectl get jobs -l app=email-import -w --context=jshipster
+```
+
+**Admin API Endpoints:**
+- `POST /api/admin/trigger-email-import` - Create Kubernetes job to import emails
+- `GET /api/admin/email-import-status/:jobName` - Get job status
+
+### Documentation
+
+- **Azure Import**: See [docs/AZURE_EMAIL_QUICK_START.md](docs/AZURE_EMAIL_QUICK_START.md) (Quick Start)
+- **Azure Full Guide**: See [docs/AZURE_BLOB_EMAIL_IMPORT.md](docs/AZURE_BLOB_EMAIL_IMPORT.md)
+- **Local Import**: See [docs/EMAIL_IMPORT_GUIDE.md](docs/EMAIL_IMPORT_GUIDE.md)
+- **Examples**: See [docs/EMAIL_EXAMPLE.md](docs/EMAIL_EXAMPLE.md)
+- **Terraform Setup**: See [../terraform/STORAGE_SETUP.md](../terraform/STORAGE_SETUP.md)
+
+### Benefits
+
+- **Better Answers**: AI learns from past successful interactions
+- **Consistency**: Similar questions get consistent, proven answers
+- **Knowledge Capture**: Institutional knowledge from email support preserved
+- **Faster Resolution**: Common issues resolved using known solutions
+- **Scalable**: Azure Blob Storage + Kubernetes Jobs for production-grade imports
 
 ## Chatbot API Documentation
 
@@ -389,6 +482,9 @@ make build-embeddings
 
 # Format, lint, and build embeddings tool
 make embeddings
+
+# Build email import tool
+make build-import-emails
 
 # Database management (Docker)
 make db-start    # Start MariaDB container

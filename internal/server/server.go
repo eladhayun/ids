@@ -130,6 +130,11 @@ func (s *Server) setupRoutes() {
 		api.POST("/chat", handlers.ChatHandler(s.db, s.config, s.cache))
 	}
 
+	// Admin endpoints
+	admin := api.Group("/admin")
+	admin.POST("/trigger-email-import", handlers.TriggerEmailImportHandler(s.config))
+	admin.GET("/email-import-status/:jobName", handlers.GetEmailImportStatusHandler(s.config))
+
 	// Handle favicon requests
 	s.echo.GET("/favicon.ico", func(c echo.Context) error {
 		return c.NoContent(204) // No content response for favicon
