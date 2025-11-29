@@ -31,32 +31,91 @@ func ParseEMLFile(filename string) (*models.Email, error) {
 
 // ParseMBOXFile parses an MBOX file and returns all emails
 func ParseMBOXFile(filename string) ([]*models.Email, error) {
+	var allEmails []*models.Email
+
+	err := ParseMBOXFileStreaming(filename, 100, func(batch []*models.Email, progress MBOXProgress) error {
+		allEmails = append(allEmails, batch...)
+		fmt.Printf("[MBOX_PARSER] Processed batch: %d emails (total: %d, %.1f%%)\n",
+			len(batch), progress.EmailsProcessed, progress.PercentComplete)
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return allEmails, nil
+}
+
+// MBOXProgress tracks the progress of MBOX file parsing
+type MBOXProgress struct {
+	BytesProcessed   int64
+	TotalBytes       int64
+	EmailsProcessed  int
+	PercentComplete  float64
+	CurrentBatchSize int
+}
+
+// MBOXBatchCallback is called for each batch of emails processed
+type MBOXBatchCallback func(batch []*models.Email, progress MBOXProgress) error
+
+// ParseMBOXFileStreaming parses an MBOX file in batches with progress tracking
+// This is memory-efficient for large MBOX files (70GB+)
+func ParseMBOXFileStreaming(filename string, batchSize int, callback MBOXBatchCallback) error {
 	file, err := os.Open(filename)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open MBOX file: %w", err)
+		return fmt.Errorf("failed to open MBOX file: %w", err)
 	}
 	defer file.Close()
 
-	var emails []*models.Email
+	// Get file size for progress tracking
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to get file info: %w", err)
+	}
+	totalBytes := fileInfo.Size()
+
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024) // 10MB max token size
 
+	var currentBatch []*models.Email
 	var currentEmail bytes.Buffer
 	var emailCount int
+	var bytesProcessed int64
 
 	for scanner.Scan() {
 		line := scanner.Text()
+		lineBytes := int64(len(line) + 1) // +1 for newline
+		bytesProcessed += lineBytes
 
 		// MBOX format: each email starts with "From " (with space)
 		if strings.HasPrefix(line, "From ") && currentEmail.Len() > 0 {
 			// Parse the accumulated email
 			email, err := parseEmailMessage(&currentEmail)
 			if err != nil {
-				fmt.Printf("Warning: Failed to parse email #%d: %v\n", emailCount+1, err)
+				fmt.Printf("[MBOX_PARSER] Warning: Failed to parse email #%d: %v\n", emailCount+1, err)
 			} else {
-				emails = append(emails, email)
+				currentBatch = append(currentBatch, email)
 			}
 			emailCount++
+
+			// Process batch if it reaches the batch size
+			if len(currentBatch) >= batchSize {
+				progress := MBOXProgress{
+					BytesProcessed:   bytesProcessed,
+					TotalBytes:       totalBytes,
+					EmailsProcessed:  emailCount,
+					PercentComplete:  float64(bytesProcessed) / float64(totalBytes) * 100,
+					CurrentBatchSize: len(currentBatch),
+				}
+
+				if err := callback(currentBatch, progress); err != nil {
+					return fmt.Errorf("batch processing error at email %d: %w", emailCount, err)
+				}
+
+				// Clear batch for next iteration
+				currentBatch = nil
+			}
 
 			// Reset buffer for next email
 			currentEmail.Reset()
@@ -72,17 +131,36 @@ func ParseMBOXFile(filename string) ([]*models.Email, error) {
 	if currentEmail.Len() > 0 {
 		email, err := parseEmailMessage(&currentEmail)
 		if err != nil {
-			fmt.Printf("Warning: Failed to parse email #%d: %v\n", emailCount+1, err)
+			fmt.Printf("[MBOX_PARSER] Warning: Failed to parse last email #%d: %v\n", emailCount+1, err)
 		} else {
-			emails = append(emails, email)
+			currentBatch = append(currentBatch, email)
+			emailCount++
+		}
+	}
+
+	// Process remaining batch
+	if len(currentBatch) > 0 {
+		progress := MBOXProgress{
+			BytesProcessed:   bytesProcessed,
+			TotalBytes:       totalBytes,
+			EmailsProcessed:  emailCount,
+			PercentComplete:  100.0,
+			CurrentBatchSize: len(currentBatch),
+		}
+
+		if err := callback(currentBatch, progress); err != nil {
+			return fmt.Errorf("final batch processing error: %w", err)
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading MBOX file: %w", err)
+		return fmt.Errorf("error reading MBOX file: %w", err)
 	}
 
-	return emails, nil
+	fmt.Printf("[MBOX_PARSER] ✅ Complete: Processed %d emails from %s (%.2f GB)\n",
+		emailCount, filepath.Base(filename), float64(totalBytes)/(1024*1024*1024))
+
+	return nil
 }
 
 // ParseDirectory recursively parses all EML files in a directory

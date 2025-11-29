@@ -10,6 +10,7 @@ import (
 	"ids/internal/config"
 	"ids/internal/database"
 	"ids/internal/emails"
+	"ids/internal/models"
 
 	"github.com/labstack/echo/v4"
 )
@@ -132,7 +133,7 @@ func ProcessEmailsFromStorage(c echo.Context) error {
 		}
 	}
 
-	// Process MBOX files
+	// Process MBOX files with streaming (memory-efficient for large files)
 	mboxFiles, err := findFiles(emailPath, ".mbox")
 	if err != nil {
 		fmt.Printf("[EMAIL_PROCESS] Error finding MBOX files: %v\n", err)
@@ -140,37 +141,63 @@ func ProcessEmailsFromStorage(c echo.Context) error {
 		fmt.Printf("[EMAIL_PROCESS] Found %d MBOX files\n", len(mboxFiles))
 
 		for _, mboxFile := range mboxFiles {
-			fmt.Printf("[EMAIL_PROCESS] Processing MBOX: %s\n", mboxFile)
+			fileInfo, _ := os.Stat(mboxFile)
+			fileSizeGB := float64(fileInfo.Size()) / (1024 * 1024 * 1024)
 
-			parsedEmails, err := emails.ParseMBOXFile(mboxFile)
+			fmt.Printf("[EMAIL_PROCESS] ═══════════════════════════════════════\n")
+			fmt.Printf("[EMAIL_PROCESS] Processing MBOX: %s (%.2f GB)\n", filepath.Base(mboxFile), fileSizeGB)
+			fmt.Printf("[EMAIL_PROCESS] Using streaming parser with batch size: 50 emails\n")
+			fmt.Printf("[EMAIL_PROCESS] ═══════════════════════════════════════\n")
+
+			// Process MBOX with streaming - batch size 50 emails at a time
+			batchNum := 0
+			err := emails.ParseMBOXFileStreaming(mboxFile, 50, func(batch []*models.Email, progress emails.MBOXProgress) error {
+				batchNum++
+
+				fmt.Printf("[EMAIL_PROCESS] ▶ Batch %d: Processing %d emails (%.1f%% complete, %d total emails)\n",
+					batchNum, len(batch), progress.PercentComplete, progress.EmailsProcessed)
+
+				// Store emails in this batch
+				storedCount := 0
+				for _, email := range batch {
+					if err := emailService.StoreEmail(email); err != nil {
+						fmt.Printf("[EMAIL_PROCESS]   Warning: Failed to store email: %v\n", err)
+					} else {
+						storedCount++
+					}
+				}
+				totalEmails += storedCount
+
+				fmt.Printf("[EMAIL_PROCESS] ✓ Batch %d: Stored %d/%d emails (Total: %d)\n",
+					batchNum, storedCount, len(batch), totalEmails)
+
+				// Generate embeddings for this batch
+				fmt.Printf("[EMAIL_PROCESS] ▶ Batch %d: Generating embeddings...\n", batchNum)
+				if err := emailService.GenerateEmailEmbeddings(); err != nil {
+					fmt.Printf("[EMAIL_PROCESS]   Warning: Failed to generate email embeddings: %v\n", err)
+				} else {
+					totalEmbeddings += storedCount
+					fmt.Printf("[EMAIL_PROCESS] ✓ Batch %d: Generated %d embeddings\n", batchNum, storedCount)
+				}
+
+				return nil
+			})
+
 			if err != nil {
-				fmt.Printf("[EMAIL_PROCESS] Warning: Failed to parse MBOX %s: %v\n", mboxFile, err)
+				fmt.Printf("[EMAIL_PROCESS] ✗ MBOX processing failed for %s: %v\n", filepath.Base(mboxFile), err)
 				continue
 			}
 
-			// Store emails
-			for i, email := range parsedEmails {
-				if err := emailService.StoreEmail(email); err != nil {
-					fmt.Printf("[EMAIL_PROCESS] Warning: Failed to store email %d from %s: %v\n", i+1, mboxFile, err)
-				} else {
-					totalEmails++
-				}
-			}
+			fmt.Printf("[EMAIL_PROCESS] ✅ Completed processing %s: %d emails\n", filepath.Base(mboxFile), totalEmails)
 
-			fmt.Printf("[EMAIL_PROCESS] Stored %d emails from %s\n", len(parsedEmails), filepath.Base(mboxFile))
-
-			// Generate embeddings for this MBOX batch
-			fmt.Printf("[EMAIL_PROCESS] Generating embeddings for %s...\n", filepath.Base(mboxFile))
-			if err := emailService.GenerateEmailEmbeddings(); err != nil {
-				fmt.Printf("[EMAIL_PROCESS] Warning: Failed to generate embeddings for %s: %v\n", mboxFile, err)
-			} else {
-				totalEmbeddings += len(parsedEmails)
-			}
-
+			// Generate thread embeddings after all emails from this MBOX are processed
+			fmt.Println("[EMAIL_PROCESS] Generating thread embeddings for all conversations...")
 			if err := emailService.GenerateThreadEmbeddings(); err != nil {
-				fmt.Printf("[EMAIL_PROCESS] Warning: Failed to generate thread embeddings for %s: %v\n", mboxFile, err)
+				fmt.Printf("[EMAIL_PROCESS] Warning: Failed to generate thread embeddings: %v\n", err)
 			} else {
-				totalThreads++
+				// Successfully generated thread embeddings
+				fmt.Printf("[EMAIL_PROCESS] ✓ Thread embeddings generated successfully\n")
+				totalThreads++ // Increment as a marker that threads were processed
 			}
 		}
 	}
