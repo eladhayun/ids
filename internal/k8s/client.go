@@ -181,7 +181,7 @@ echo "Files: $FILE_COUNT"
 echo "Total Size: $FINAL_SIZE"
 echo ""
 echo "Files downloaded:"
-ls -lh /emails 2>/dev/null | tail -n +2 | awk '{print "  " $9 " - " $5}'
+ls -lh /emails 2>/dev/null | tail -n +2 || true
 echo "==========================================="`,
 				},
 				Env: []corev1.EnvVar{
