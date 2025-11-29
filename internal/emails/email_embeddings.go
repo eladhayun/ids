@@ -43,61 +43,72 @@ func NewEmailEmbeddingService(cfg *config.Config, writeClient *database.WriteCli
 	}, nil
 }
 
-// CreateEmailTables creates the necessary database tables
+// CreateEmailTables creates the necessary database tables (PostgreSQL-compatible)
 func (ees *EmailEmbeddingService) CreateEmailTables() error {
 	queries := []string{
 		// Emails table
 		`CREATE TABLE IF NOT EXISTS emails (
-			id INT AUTO_INCREMENT PRIMARY KEY,
+			id SERIAL PRIMARY KEY,
 			message_id VARCHAR(255) UNIQUE NOT NULL,
 			subject TEXT NOT NULL,
 			from_addr TEXT NOT NULL,
 			to_addr TEXT NOT NULL,
-			date DATETIME NOT NULL,
-			body LONGTEXT NOT NULL,
+			date TIMESTAMP NOT NULL,
+			body TEXT NOT NULL,
 			thread_id VARCHAR(255),
 			in_reply_to VARCHAR(255),
-			` + "`references`" + ` TEXT,
+			references TEXT,
 			is_customer BOOLEAN DEFAULT FALSE,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			INDEX idx_message_id (message_id),
-			INDEX idx_thread_id (thread_id),
-			INDEX idx_date (date),
-			INDEX idx_is_customer (is_customer)
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
 
 		// Email threads table
 		`CREATE TABLE IF NOT EXISTS email_threads (
 			thread_id VARCHAR(255) PRIMARY KEY,
 			subject TEXT NOT NULL,
 			email_count INT DEFAULT 1,
-			first_date DATETIME NOT NULL,
-			last_date DATETIME NOT NULL,
+			first_date TIMESTAMP NOT NULL,
+			last_date TIMESTAMP NOT NULL,
 			summary TEXT,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			INDEX idx_first_date (first_date),
-			INDEX idx_last_date (last_date)
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)`,
 
 		// Email embeddings table
 		`CREATE TABLE IF NOT EXISTS email_embeddings (
-			id INT AUTO_INCREMENT PRIMARY KEY,
+			id SERIAL PRIMARY KEY,
 			email_id INT,
 			thread_id VARCHAR(255),
-			embedding JSON NOT NULL,
+			embedding JSONB NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			UNIQUE KEY idx_email_id (email_id),
-			UNIQUE KEY idx_thread_id (thread_id),
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE (email_id),
+			UNIQUE (thread_id),
 			FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+		)`,
 	}
 
 	for _, query := range queries {
 		if _, err := ees.db.ExecuteWriteQuery(query); err != nil {
 			return fmt.Errorf("failed to create table: %w", err)
+		}
+	}
+
+	// Create indexes separately
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_emails_message_id ON emails(message_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_emails_thread_id ON emails(thread_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_emails_date ON emails(date)`,
+		`CREATE INDEX IF NOT EXISTS idx_emails_is_customer ON emails(is_customer)`,
+		`CREATE INDEX IF NOT EXISTS idx_email_threads_first_date ON email_threads(first_date)`,
+		`CREATE INDEX IF NOT EXISTS idx_email_threads_last_date ON email_threads(last_date)`,
+	}
+
+	for _, query := range indexes {
+		if _, err := ees.db.ExecuteWriteQuery(query); err != nil {
+			// Ignore errors for index creation (they might already exist)
+			fmt.Printf("Warning: Failed to create index: %v\n", err)
 		}
 	}
 
@@ -111,19 +122,19 @@ func (ees *EmailEmbeddingService) StoreEmail(email *models.Email) error {
 	email.ThreadID = &threadID
 
 	query := `
-		INSERT INTO emails (message_id, subject, from_addr, to_addr, date, body, thread_id, in_reply_to, ` + "`references`" + `, is_customer)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE
-			subject = VALUES(subject),
-			from_addr = VALUES(from_addr),
-			to_addr = VALUES(to_addr),
-			date = VALUES(date),
-			body = VALUES(body),
-			thread_id = VALUES(thread_id),
-			in_reply_to = VALUES(in_reply_to),
-			` + "`references`" + ` = VALUES(` + "`references`" + `),
-			is_customer = VALUES(is_customer),
-			updated_at = NOW()
+		INSERT INTO emails (message_id, subject, from_addr, to_addr, date, body, thread_id, in_reply_to, references, is_customer)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		ON CONFLICT (message_id) DO UPDATE SET
+			subject = EXCLUDED.subject,
+			from_addr = EXCLUDED.from_addr,
+			to_addr = EXCLUDED.to_addr,
+			date = EXCLUDED.date,
+			body = EXCLUDED.body,
+			thread_id = EXCLUDED.thread_id,
+			in_reply_to = EXCLUDED.in_reply_to,
+			references = EXCLUDED.references,
+			is_customer = EXCLUDED.is_customer,
+			updated_at = CURRENT_TIMESTAMP
 	`
 
 	_, err := ees.db.ExecuteWriteQuery(query,
@@ -515,19 +526,19 @@ func (ees *EmailEmbeddingService) storeEmailEmbedding(emailID int, threadID *str
 	if threadID != nil {
 		query = `
 			INSERT INTO email_embeddings (thread_id, embedding)
-			VALUES (?, ?)
-			ON DUPLICATE KEY UPDATE
-				embedding = VALUES(embedding),
-				updated_at = NOW()
+			VALUES ($1, $2)
+			ON CONFLICT (thread_id) DO UPDATE SET
+				embedding = EXCLUDED.embedding,
+				updated_at = CURRENT_TIMESTAMP
 		`
 		args = []interface{}{*threadID, string(embeddingJSON)}
 	} else {
 		query = `
 			INSERT INTO email_embeddings (email_id, embedding)
-			VALUES (?, ?)
-			ON DUPLICATE KEY UPDATE
-				embedding = VALUES(embedding),
-				updated_at = NOW()
+			VALUES ($1, $2)
+			ON CONFLICT (email_id) DO UPDATE SET
+				embedding = EXCLUDED.embedding,
+				updated_at = CURRENT_TIMESTAMP
 		`
 		args = []interface{}{emailID, string(embeddingJSON)}
 	}

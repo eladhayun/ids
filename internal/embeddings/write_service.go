@@ -330,13 +330,13 @@ func (wes *WriteEmbeddingService) storeEmbedding(product models.Product, embeddi
 		return fmt.Errorf("failed to marshal embedding: %v", err)
 	}
 
-	// Store in database (we'll create a table for this)
+	// Store in database (PostgreSQL-compatible UPSERT)
 	query := `
 		INSERT INTO product_embeddings (product_id, embedding, created_at, updated_at)
-		VALUES (?, ?, NOW(), NOW())
-		ON DUPLICATE KEY UPDATE
-			embedding = VALUES(embedding),
-			updated_at = NOW()
+		VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT (product_id) DO UPDATE SET
+			embedding = EXCLUDED.embedding,
+			updated_at = CURRENT_TIMESTAMP
 	`
 
 	_, err = wes.db.ExecuteWriteQuery(query, product.ID, string(embeddingJSON))
@@ -349,17 +349,23 @@ func (wes *WriteEmbeddingService) storeEmbedding(product models.Product, embeddi
 
 // CreateEmbeddingsTable creates the table for storing product embeddings
 func (wes *WriteEmbeddingService) CreateEmbeddingsTable() error {
+	// PostgreSQL-compatible SQL (works for both Postgres and MySQL with minor differences)
 	query := `
 		CREATE TABLE IF NOT EXISTS product_embeddings (
 			product_id INT PRIMARY KEY,
-			embedding JSON NOT NULL,
+			embedding JSONB NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			INDEX idx_product_id (product_id)
-		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
 	`
 
-	_, err := wes.db.ExecuteWriteQuery(query)
+	if _, err := wes.db.ExecuteWriteQuery(query); err != nil {
+		return err
+	}
+
+	// Create index separately (PostgreSQL syntax)
+	indexQuery := `CREATE INDEX IF NOT EXISTS idx_product_embeddings_product_id ON product_embeddings(product_id)`
+	_, err := wes.db.ExecuteWriteQuery(indexQuery)
 	return err
 }
 
