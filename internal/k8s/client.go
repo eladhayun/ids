@@ -223,13 +223,13 @@ mbox_count=$(find /emails -name "*.mbox" -type f | wc -l)
 echo "Found $eml_count EML files and $mbox_count MBOX files"
 if [ "$eml_count" -gt 0 ]; then
   echo "===== Importing EML files ====="
-  /app/bin/import-emails -eml /emails -embeddings=true
+  /home/appuser/import-emails -eml /emails -embeddings=true
 fi
 if [ "$mbox_count" -gt 0 ]; then
   echo "===== Importing MBOX files ====="
   find /emails -name "*.mbox" -type f | while read mbox_file; do
     echo "Processing: $mbox_file"
-    /app/bin/import-emails -mbox "$mbox_file" -embeddings=true
+    /home/appuser/import-emails -mbox "$mbox_file" -embeddings=true
   done
 fi
 echo "===== Email Import Complete ====="`,

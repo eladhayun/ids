@@ -28,6 +28,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./cmd/server
 # Build the init-embeddings-write command
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o init-embeddings-write ./cmd/init-embeddings-write
 
+# Build the import-emails command
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o import-emails ./cmd/import-emails
+
 
 # Final stage
 FROM alpine:latest
@@ -45,6 +48,7 @@ WORKDIR /home/appuser
 # Copy the binaries from builder stage
 COPY --from=builder /app/main .
 COPY --from=builder /app/init-embeddings-write .
+COPY --from=builder /app/import-emails .
 
 # Copy static files for the frontend
 COPY --from=builder /app/static ./static
