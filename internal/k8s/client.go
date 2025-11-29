@@ -134,33 +134,44 @@ echo ""
 mkdir -p /emails
 START_TIME=$(date +%s)
 
-echo "Downloading all files..."
-az storage blob download-batch \
-  --account-name ${AZURE_STORAGE_ACCOUNT} \
-  --account-key ${AZURE_STORAGE_KEY} \
-  --source ${AZURE_CONTAINER_NAME} \
-  --destination /emails \
-  --pattern "*" \
-  --output table
-
-END_TIME=$(date +%s)
-DURATION=$((END_TIME - START_TIME))
-MINUTES=$((DURATION / 60))
-SECONDS=$((DURATION % 60))
-
-echo ""
-echo "==========================================="
-echo "  DOWNLOAD COMPLETE"
-echo "==========================================="
-echo "Finished: $(date '+%Y-%m-%d %H:%M:%S')"
-echo "Duration: ${MINUTES}m ${SECONDS}s"
-
-FINAL_SIZE=$(du -hs /emails 2>/dev/null | cut -f1 || echo "unknown")
+# Check if files already exist (from previous runs)
+EXISTING_SIZE=$(du -hs /emails 2>/dev/null | cut -f1 || echo "0")
 FILE_COUNT=$(find /emails -type f 2>/dev/null | wc -l | tr -d ' ')
 
-echo "Total Size: $FINAL_SIZE"
-echo "File Count: $FILE_COUNT"
-echo "==========================================="`,
+if [ "$FILE_COUNT" -gt 0 ]; then
+  echo "===== Files Already Downloaded ====="
+  echo "Found $FILE_COUNT existing files ($EXISTING_SIZE)"
+  echo "Skipping download - using cached files from previous run"
+  echo "===== Download Skipped ====="
+else
+  echo "No existing files found - downloading from Azure..."
+  az storage blob download-batch \
+    --account-name ${AZURE_STORAGE_ACCOUNT} \
+    --account-key ${AZURE_STORAGE_KEY} \
+    --source ${AZURE_CONTAINER_NAME} \
+    --destination /emails \
+    --pattern "*" \
+    --output table
+  
+  END_TIME=$(date +%s)
+  DURATION=$((END_TIME - START_TIME))
+  MINUTES=$((DURATION / 60))
+  SECONDS=$((DURATION % 60))
+  
+  echo ""
+  echo "==========================================="
+  echo "  DOWNLOAD COMPLETE"
+  echo "==========================================="
+  echo "Finished: $(date '+%Y-%m-%d %H:%M:%S')"
+  echo "Duration: ${MINUTES}m ${SECONDS}s"
+  
+  FINAL_SIZE=$(du -hs /emails 2>/dev/null | cut -f1 || echo "unknown")
+  FILE_COUNT=$(find /emails -type f 2>/dev/null | wc -l | tr -d ' ')
+  
+  echo "Total Size: $FINAL_SIZE"
+  echo "File Count: $FILE_COUNT"
+  echo "==========================================="
+fi`,
 				},
 				Env: []corev1.EnvVar{
 					{
@@ -273,8 +284,8 @@ echo "===== Email Import Complete ====="`,
 			{
 				Name: "email-data",
 				VolumeSource: corev1.VolumeSource{
-					EmptyDir: &corev1.EmptyDirVolumeSource{
-						SizeLimit: resourceQuantityPtr("75Gi"),
+					PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+						ClaimName: "email-data-pvc",
 					},
 				},
 			},
