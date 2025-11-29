@@ -13,8 +13,8 @@ import (
 // Config holds all configuration for the application
 type Config struct {
 	Port                   string
-	DatabaseURL            string        // Remote database (via SSH tunnel) - read-only for product data
-	EmbeddingsDatabaseURL  string        // Local MariaDB - for storing embeddings and email data
+	DatabaseURL            string // Remote database (via SSH tunnel) - read-only for product data
+	EmbeddingsDatabaseURL  string // Local MariaDB - for storing embeddings and email data
 	Version                string
 	LogLevel               string
 	OpenAIKey              string

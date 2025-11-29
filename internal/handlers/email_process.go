@@ -55,8 +55,8 @@ func ProcessEmailsFromStorage(c echo.Context) error {
 	// Load configuration
 	cfg := config.Load()
 
-	// Create write database client
-	writeClient, err := database.NewWriteClient(cfg.DatabaseURL)
+	// Create write database client (local MariaDB for embeddings)
+	writeClient, err := database.NewWriteClient(cfg.EmbeddingsDatabaseURL)
 	if err != nil {
 		fmt.Printf("[EMAIL_PROCESS] Failed to create database client: %v\n", err)
 		return c.JSON(http.StatusInternalServerError, ProcessEmailsResponse{

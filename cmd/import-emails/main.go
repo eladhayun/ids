@@ -32,8 +32,8 @@ func main() {
 	// Load configuration
 	cfg := config.Load()
 
-	// Create write database client
-	writeClient, err := database.NewWriteClient(cfg.DatabaseURL)
+	// Create write database client (local MariaDB for embeddings)
+	writeClient, err := database.NewWriteClient(cfg.EmbeddingsDatabaseURL)
 	if err != nil {
 		log.Fatalf("Failed to create database client: %v", err)
 	}

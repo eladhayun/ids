@@ -49,9 +49,9 @@ func main() {
 		}
 	}
 
-	// Initialize write-enabled database connection
-	fmt.Println("Connecting to database with write access...")
-	writeClient, err := database.NewWriteClient(cfg.DatabaseURL)
+	// Initialize write-enabled database connection (local MariaDB for embeddings)
+	fmt.Println("Connecting to embeddings database with write access...")
+	writeClient, err := database.NewWriteClient(cfg.EmbeddingsDatabaseURL)
 	if err != nil {
 		log.Fatal("Failed to connect to database with write access:", err)
 	}
