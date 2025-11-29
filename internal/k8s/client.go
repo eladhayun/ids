@@ -211,56 +211,26 @@ fi`,
 		},
 		Containers: []corev1.Container{
 			{
-				Name:  "import-emails",
-				Image: containerImage,
+				Name:  "verify-download",
+				Image: "alpine:latest",
 				Command: []string{
 					"/bin/sh",
 					"-c",
 					`set -e
-echo "===== Starting Email Import Process ====="
-eml_count=$(find /emails -name "*.eml" -type f | wc -l)
-mbox_count=$(find /emails -name "*.mbox" -type f | wc -l)
-echo "Found $eml_count EML files and $mbox_count MBOX files"
-if [ "$eml_count" -gt 0 ]; then
-  echo "===== Importing EML files ====="
-  /home/appuser/import-emails -eml /emails -embeddings=true
-fi
-if [ "$mbox_count" -gt 0 ]; then
-  echo "===== Importing MBOX files ====="
-  find /emails -name "*.mbox" -type f | while read mbox_file; do
-    echo "Processing: $mbox_file"
-    /home/appuser/import-emails -mbox "$mbox_file" -embeddings=true
-  done
-fi
-echo "===== Email Import Complete ====="`,
-				},
-				Env: []corev1.EnvVar{
-					{
-						Name: "DATABASE_URL",
-						ValueFrom: &corev1.EnvVarSource{
-							SecretKeyRef: &corev1.SecretKeySelector{
-								LocalObjectReference: corev1.LocalObjectReference{
-									Name: "ids-secrets",
-								},
-								Key: "DATABASE_URL",
-							},
-						},
-					},
-					{
-						Name: "OPENAI_API_KEY",
-						ValueFrom: &corev1.EnvVarSource{
-							SecretKeyRef: &corev1.SecretKeySelector{
-								LocalObjectReference: corev1.LocalObjectReference{
-									Name: "ids-secrets",
-								},
-								Key: "OPENAI_API_KEY",
-							},
-						},
-					},
-					{
-						Name:  "WAIT_FOR_TUNNEL",
-						Value: "false",
-					},
+echo "===== Verifying Downloaded Emails ====="
+
+# Count files
+eml_count=$(find /emails -name "*.eml" -type f 2>/dev/null | wc -l | tr -d ' ')
+mbox_count=$(find /emails -name "*.mbox" -type f 2>/dev/null | wc -l | tr -d ' ')
+total_size=$(du -hs /emails 2>/dev/null | cut -f1 || echo "0")
+
+echo "Download verified:"
+echo "  - EML files: $eml_count"
+echo "  - MBOX files: $mbox_count"
+echo "  - Total size: $total_size"
+echo ""
+echo "✅ Files ready for backend processing"
+echo "The IDS backend will automatically import these emails."`,
 				},
 				VolumeMounts: []corev1.VolumeMount{
 					{
@@ -270,12 +240,12 @@ echo "===== Email Import Complete ====="`,
 				},
 				Resources: corev1.ResourceRequirements{
 					Requests: corev1.ResourceList{
-						corev1.ResourceMemory: resourceQuantity("1Gi"),
-						corev1.ResourceCPU:    resourceQuantity("500m"),
+						corev1.ResourceMemory: resourceQuantity("64Mi"),
+						corev1.ResourceCPU:    resourceQuantity("50m"),
 					},
 					Limits: corev1.ResourceList{
-						corev1.ResourceMemory: resourceQuantity("4Gi"),
-						corev1.ResourceCPU:    resourceQuantity("2000m"),
+						corev1.ResourceMemory: resourceQuantity("128Mi"),
+						corev1.ResourceCPU:    resourceQuantity("100m"),
 					},
 				},
 			},
