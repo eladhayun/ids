@@ -23,7 +23,12 @@ type Client struct {
 }
 
 // NewClient creates a new Kubernetes client
+// If namespace is empty, defaults to "ids"
 func NewClient(namespace string) (*Client, error) {
+	if namespace == "" {
+		namespace = "ids"
+	}
+
 	config, err := getKubeConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get kubeconfig: %w", err)

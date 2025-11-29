@@ -63,8 +63,8 @@ func TriggerEmailImportHandler(cfg *config.Config) echo.HandlerFunc {
 		// Generate unique job name with timestamp
 		jobName := fmt.Sprintf("email-import-%d", time.Now().Unix())
 
-		// Create Kubernetes client
-		k8sClient, err := k8s.NewClient("default")
+		// Create Kubernetes client for ids namespace
+		k8sClient, err := k8s.NewClient("ids")
 		if err != nil {
 			fmt.Printf("[EMAIL_IMPORT_JOB] Failed to create Kubernetes client: %v\n", err)
 			return c.JSON(http.StatusInternalServerError, TriggerEmailImportResponse{
@@ -113,8 +113,8 @@ func GetEmailImportStatusHandler(cfg *config.Config) echo.HandlerFunc {
 
 		fmt.Printf("[EMAIL_IMPORT_JOB] Getting status for job: %s\n", jobName)
 
-		// Create Kubernetes client
-		k8sClient, err := k8s.NewClient("default")
+		// Create Kubernetes client for ids namespace
+		k8sClient, err := k8s.NewClient("ids")
 		if err != nil {
 			fmt.Printf("[EMAIL_IMPORT_JOB] Failed to create Kubernetes client: %v\n", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{
