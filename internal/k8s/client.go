@@ -235,28 +235,28 @@ fi
 echo "===== Email Import Complete ====="`,
 				},
 				Env: []corev1.EnvVar{
-					{
-						Name: "DATABASE_URL",
-						ValueFrom: &corev1.EnvVarSource{
-							SecretKeyRef: &corev1.SecretKeySelector{
-								LocalObjectReference: corev1.LocalObjectReference{
-									Name: "ids-secrets",
-								},
-								Key: "database-url",
+				{
+					Name: "DATABASE_URL",
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: "ids-secrets",
 							},
+							Key: "DATABASE_URL",
 						},
 					},
-					{
-						Name: "OPENAI_API_KEY",
-						ValueFrom: &corev1.EnvVarSource{
-							SecretKeyRef: &corev1.SecretKeySelector{
-								LocalObjectReference: corev1.LocalObjectReference{
-									Name: "ids-secrets",
-								},
-								Key: "openai-api-key",
+				},
+				{
+					Name: "OPENAI_API_KEY",
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: "ids-secrets",
 							},
+							Key: "OPENAI_API_KEY",
 						},
 					},
+				},
 					{
 						Name:  "WAIT_FOR_TUNNEL",
 						Value: "false",
