@@ -57,7 +57,7 @@ func (ees *EmailEmbeddingService) CreateEmailTables() error {
 			body TEXT NOT NULL,
 			thread_id VARCHAR(255),
 			in_reply_to VARCHAR(255),
-			references TEXT,
+			"references" TEXT,
 			is_customer BOOLEAN DEFAULT FALSE,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -122,7 +122,7 @@ func (ees *EmailEmbeddingService) StoreEmail(email *models.Email) error {
 	email.ThreadID = &threadID
 
 	query := `
-		INSERT INTO emails (message_id, subject, from_addr, to_addr, date, body, thread_id, in_reply_to, references, is_customer)
+		INSERT INTO emails (message_id, subject, from_addr, to_addr, date, body, thread_id, in_reply_to, "references", is_customer)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (message_id) DO UPDATE SET
 			subject = EXCLUDED.subject,
@@ -132,7 +132,7 @@ func (ees *EmailEmbeddingService) StoreEmail(email *models.Email) error {
 			body = EXCLUDED.body,
 			thread_id = EXCLUDED.thread_id,
 			in_reply_to = EXCLUDED.in_reply_to,
-			references = EXCLUDED.references,
+			"references" = EXCLUDED."references",
 			is_customer = EXCLUDED.is_customer,
 			updated_at = CURRENT_TIMESTAMP
 	`
