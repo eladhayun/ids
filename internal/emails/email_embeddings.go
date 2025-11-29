@@ -575,14 +575,15 @@ func (ees *EmailEmbeddingService) SearchSimilarEmails(query string, limit int, s
 	var dbQuery string
 	if searchThreads {
 		dbQuery = `
-			SELECT ee.embedding, e.id, e.message_id, e.subject, e.from_addr, e.to_addr, 
+			SELECT DISTINCT ON (ee.thread_id)
+			       ee.embedding, e.id, e.message_id, e.subject, e.from_addr, e.to_addr, 
 			       e.date, e.body, e.thread_id, e.is_customer,
 			       et.thread_id, et.subject, et.email_count, et.first_date, et.last_date
 			FROM email_embeddings ee
 			JOIN email_threads et ON et.thread_id = ee.thread_id
 			JOIN emails e ON e.thread_id = et.thread_id
 			WHERE ee.thread_id IS NOT NULL
-			GROUP BY et.thread_id
+			ORDER BY ee.thread_id, e.date DESC
 		`
 	} else {
 		dbQuery = `
