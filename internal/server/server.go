@@ -134,6 +134,7 @@ func (s *Server) setupRoutes() {
 	admin := api.Group("/admin")
 	admin.POST("/trigger-email-import", handlers.TriggerEmailImportHandler(s.config))
 	admin.GET("/email-import-status/:jobName", handlers.GetEmailImportStatusHandler(s.config))
+	admin.POST("/import-emails-to-db", handlers.ProcessEmailsFromStorage)
 
 	// Handle favicon requests
 	s.echo.GET("/favicon.ico", func(c echo.Context) error {
