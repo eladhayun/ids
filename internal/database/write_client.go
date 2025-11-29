@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/go-sql-driver/mysql" // Keep for remote MySQL DB
 	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq" // Add for local PostgreSQL DB
 )
 
 // WriteClient provides write access to the database for embedding operations
@@ -15,12 +16,18 @@ type WriteClient struct {
 	db *sqlx.DB
 }
 
-// NewWriteClient creates a new write-enabled database client
+// NewWriteClient creates a new write-enabled database client (supports both MySQL and PostgreSQL)
 func NewWriteClient(databaseURL string) (*WriteClient, error) {
 	// Parse the URL to replace read-only user with write user
 	writeURL := convertToWriteURL(databaseURL)
 
-	db, err := sqlx.Connect("mysql", writeURL)
+	// Auto-detect driver from URL
+	driver := "mysql"
+	if len(writeURL) > 8 && writeURL[:8] == "postgres" {
+		driver = "postgres"
+	}
+
+	db, err := sqlx.Connect(driver, writeURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database with write access: %v", err)
 	}

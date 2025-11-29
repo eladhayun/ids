@@ -5,17 +5,24 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/go-sql-driver/mysql" // Keep for remote MySQL DB
 	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq" // Add for local PostgreSQL DB
 )
 
-// New creates a new database connection
+// New creates a new database connection (supports both MySQL and PostgreSQL)
 func New(databaseURL string) (*sqlx.DB, error) {
 	if databaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL environment variable not set")
 	}
 
-	db, err := sqlx.Open("mysql", databaseURL)
+	// Auto-detect driver from URL
+	driver := "mysql"
+	if len(databaseURL) > 8 && databaseURL[:8] == "postgres" {
+		driver = "postgres"
+	}
+
+	db, err := sqlx.Open(driver, databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
