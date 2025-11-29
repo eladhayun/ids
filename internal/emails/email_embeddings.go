@@ -151,6 +151,16 @@ func (ees *EmailEmbeddingService) StoreEmail(email *models.Email) error {
 	)
 
 	if err != nil {
+		// Debug: Log first error with details
+		if strings.Contains(err.Error(), "syntax error") {
+			fmt.Printf("[EMAIL_STORE] SQL Error Details:\n")
+			fmt.Printf("  MessageID: %s\n", email.MessageID)
+			fmt.Printf("  Date: %v\n", email.Date)
+			fmt.Printf("  ThreadID: %v\n", email.ThreadID)
+			fmt.Printf("  InReplyTo: %v\n", email.InReplyTo)
+			fmt.Printf("  References: %v\n", email.References)
+			fmt.Printf("  Error: %v\n", err)
+		}
 		return fmt.Errorf("failed to store email: %w", err)
 	}
 
