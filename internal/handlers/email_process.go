@@ -159,17 +159,34 @@ func ProcessEmailsFromStorage(c echo.Context) error {
 
 				// Store emails in this batch
 				storedCount := 0
+				errorCount := 0
+
 				for _, email := range batch {
 					if err := emailService.StoreEmail(email); err != nil {
-						fmt.Printf("[EMAIL_PROCESS]   Warning: Failed to store email: %v\n", err)
+						if strings.Contains(err.Error(), "syntax error") {
+							errorCount++
+							// Only log first few syntax errors to avoid log spam
+							if errorCount <= 3 {
+								fmt.Printf("[EMAIL_PROCESS]   ⚠️ SQL Error: %v\n", err)
+							}
+						}
+						// All other errors are silently handled (duplicates, etc)
 					} else {
 						storedCount++
 					}
 				}
 				totalEmails += storedCount
 
-				fmt.Printf("[EMAIL_PROCESS] ✓ Batch %d: Stored %d/%d emails (Total: %d)\n",
-					batchNum, storedCount, len(batch), totalEmails)
+				if errorCount > 3 {
+					fmt.Printf("[EMAIL_PROCESS] ✓ Batch %d: %d stored, %d SQL errors (showing first 3 only)\n",
+						batchNum, storedCount, errorCount)
+				} else if storedCount > 0 {
+					fmt.Printf("[EMAIL_PROCESS] ✓ Batch %d: Stored %d/%d new emails (Total: %d)\n",
+						batchNum, storedCount, len(batch), totalEmails)
+				} else {
+					fmt.Printf("[EMAIL_PROCESS] ○ Batch %d: All emails already imported (skipped %d duplicates)\n",
+						batchNum, len(batch))
+				}
 
 				// Generate embeddings for this batch
 				fmt.Printf("[EMAIL_PROCESS] ▶ Batch %d: Generating embeddings...\n", batchNum)

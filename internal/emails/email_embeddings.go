@@ -15,6 +15,14 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // EmailEmbeddingService handles vector embeddings for emails
 type EmailEmbeddingService struct {
 	client *openai.Client
@@ -137,7 +145,7 @@ func (ees *EmailEmbeddingService) StoreEmail(email *models.Email) error {
 			updated_at = CURRENT_TIMESTAMP
 	`
 
-	_, err := ees.db.ExecuteWriteQuery(query,
+	result, err := ees.db.ExecuteWriteQuery(query,
 		email.MessageID,
 		email.Subject,
 		email.From,
@@ -151,17 +159,33 @@ func (ees *EmailEmbeddingService) StoreEmail(email *models.Email) error {
 	)
 
 	if err != nil {
-		// Debug: Log first error with details
-		if strings.Contains(err.Error(), "syntax error") {
-			fmt.Printf("[EMAIL_STORE] SQL Error Details:\n")
-			fmt.Printf("  MessageID: %s\n", email.MessageID)
-			fmt.Printf("  Date: %v\n", email.Date)
-			fmt.Printf("  ThreadID: %v\n", email.ThreadID)
-			fmt.Printf("  InReplyTo: %v\n", email.InReplyTo)
-			fmt.Printf("  References: %v\n", email.References)
-			fmt.Printf("  Error: %v\n", err)
+		errStr := err.Error()
+
+		// Handle different error types gracefully
+		if strings.Contains(errStr, "duplicate key") || strings.Contains(errStr, "unique constraint") {
+			// This is expected during re-imports - email already exists
+			// Silently continue (ON CONFLICT should handle this, but just in case)
+			return nil
 		}
+
+		if strings.Contains(errStr, "syntax error") {
+			// This is a real SQL error - log details for debugging
+			fmt.Printf("[EMAIL_STORE] ⚠️  SQL Syntax Error:\n")
+			fmt.Printf("  Message-ID: %s\n", email.MessageID)
+			fmt.Printf("  Subject: %s\n", email.Subject[:min(50, len(email.Subject))])
+			fmt.Printf("  Error: %v\n", err)
+			return fmt.Errorf("SQL syntax error: %w", err)
+		}
+
+		// Other errors - log and return
 		return fmt.Errorf("failed to store email: %w", err)
+	}
+
+	// Check if this was an insert or update
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		// Email already exists and unchanged
+		return nil
 	}
 
 	// Update thread information
