@@ -5,6 +5,7 @@ import (
 
 	"ids/internal/cache"
 	"ids/internal/config"
+	"ids/internal/database"
 	"ids/internal/embeddings"
 	"ids/internal/handlers"
 
@@ -19,6 +20,7 @@ import (
 type Server struct {
 	echo             *echo.Echo
 	db               *sqlx.DB
+	writeClient      *database.WriteClient
 	config           *config.Config
 	logger           zerolog.Logger
 	cache            *cache.Cache
@@ -40,9 +42,22 @@ func New(cfg *config.Config, db *sqlx.DB, logger zerolog.Logger) *Server {
 		}
 	}
 
+	// Initialize write client for PostgreSQL (email embeddings)
+	var writeClient *database.WriteClient
+	if cfg.EmbeddingsDatabaseURL != "" {
+		var err error
+		writeClient, err = database.NewWriteClient(cfg.EmbeddingsDatabaseURL)
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to initialize embeddings database connection")
+		} else {
+			logger.Info().Msg("Embeddings database connection established (PostgreSQL)")
+		}
+	}
+
 	return &Server{
 		config:           cfg,
 		db:               db,
+		writeClient:      writeClient,
 		logger:           logger,
 		cache:            cache.New(),
 		embeddingService: embeddingService,
@@ -128,6 +143,11 @@ func (s *Server) setupRoutes() {
 		api.POST("/chat", handlers.ChatVectorHandler(s.db, s.config, s.cache, s.embeddingService))
 	} else {
 		api.POST("/chat", handlers.ChatHandler(s.db, s.config, s.cache))
+	}
+
+	// Enhanced chat with email context (if write client available for email embeddings)
+	if s.writeClient != nil && s.embeddingService != nil {
+		api.POST("/chat/enhanced", handlers.ChatEnhancedHandler(s.db, s.config, s.cache, s.embeddingService, s.writeClient))
 	}
 
 	// Admin endpoints

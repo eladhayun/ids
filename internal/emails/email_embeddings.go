@@ -188,7 +188,12 @@ func (ees *EmailEmbeddingService) updateThread(threadID string, email *models.Em
 		// Create new thread
 		insertQuery := `
 			INSERT INTO email_threads (thread_id, subject, email_count, first_date, last_date)
-			VALUES (?, ?, 1, ?, ?)
+			VALUES ($1, $2, 1, $3, $4)
+			ON CONFLICT (thread_id) DO UPDATE SET
+				email_count = email_threads.email_count + 1,
+				last_date = CASE WHEN EXCLUDED.last_date > email_threads.last_date THEN EXCLUDED.last_date ELSE email_threads.last_date END,
+				first_date = CASE WHEN EXCLUDED.first_date < email_threads.first_date THEN EXCLUDED.first_date ELSE email_threads.first_date END,
+				updated_at = CURRENT_TIMESTAMP
 		`
 		_, err = ees.db.ExecuteWriteQuery(insertQuery, threadID, email.Subject, email.Date, email.Date)
 	}
@@ -390,7 +395,7 @@ func (ees *EmailEmbeddingService) generateThreadEmbedding(threadID string) error
 		SELECT id, message_id, subject, from_addr, to_addr, date, body, thread_id, 
 		       in_reply_to, "references", is_customer
 		FROM emails
-		WHERE thread_id = ?
+		WHERE thread_id = $1
 		ORDER BY date ASC
 	`
 
