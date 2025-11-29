@@ -13,7 +13,8 @@ import (
 // Config holds all configuration for the application
 type Config struct {
 	Port                   string
-	DatabaseURL            string
+	DatabaseURL            string        // Remote database (via SSH tunnel) - read-only for product data
+	EmbeddingsDatabaseURL  string        // Local MariaDB - for storing embeddings and email data
 	Version                string
 	LogLevel               string
 	OpenAIKey              string
@@ -31,7 +32,8 @@ func Load() *Config {
 
 	config := &Config{
 		Port:                   getEnv("PORT", "8080"),
-		DatabaseURL:            os.Getenv("DATABASE_URL"),
+		DatabaseURL:            os.Getenv("DATABASE_URL"),            // Remote DB via SSH
+		EmbeddingsDatabaseURL:  os.Getenv("EMBEDDINGS_DATABASE_URL"), // Local MariaDB
 		Version:                getEnv("VERSION", "1.0.0"),
 		LogLevel:               getEnv("LOG_LEVEL", "info"),
 		OpenAIKey:              os.Getenv("OPENAI_API_KEY"),
