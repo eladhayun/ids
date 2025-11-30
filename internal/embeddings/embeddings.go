@@ -2,6 +2,7 @@ package embeddings
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"ids/internal/config"
+	"ids/internal/database"
 	"ids/internal/models"
 	"ids/internal/utils"
 
@@ -19,7 +21,8 @@ import (
 // EmbeddingService handles vector embeddings for products
 type EmbeddingService struct {
 	client      *openai.Client
-	db          *sqlx.DB
+	db          *sqlx.DB              // MariaDB - only for reading product data when generating embeddings
+	writeClient *database.WriteClient // PostgreSQL - for searching embeddings
 	tagTokenSet map[string]struct{}
 }
 
@@ -31,7 +34,9 @@ type ProductEmbedding struct {
 }
 
 // NewEmbeddingService creates a new embedding service
-func NewEmbeddingService(cfg *config.Config, db *sqlx.DB) (*EmbeddingService, error) {
+// db: MariaDB connection (only for reading product data when generating embeddings)
+// writeClient: PostgreSQL connection (for searching embeddings)
+func NewEmbeddingService(cfg *config.Config, db *sqlx.DB, writeClient *database.WriteClient) (*EmbeddingService, error) {
 	client := openai.NewClient(cfg.OpenAIKey)
 
 	// Test the connection
@@ -47,12 +52,16 @@ func NewEmbeddingService(cfg *config.Config, db *sqlx.DB) (*EmbeddingService, er
 	}
 
 	service := &EmbeddingService{
-		client: client,
-		db:     db,
+		client:      client,
+		db:          db,
+		writeClient: writeClient,
 	}
 
-	if err := service.loadTagTokens(); err != nil {
-		fmt.Printf("[EMBEDDING_SERVICE] WARNING: Failed to load tag tokens for filtering: %v\n", err)
+	// Load tag tokens from MariaDB (only needed when generating embeddings)
+	if db != nil {
+		if err := service.loadTagTokens(); err != nil {
+			fmt.Printf("[EMBEDDING_SERVICE] WARNING: Failed to load tag tokens for filtering: %v\n", err)
+		}
 	}
 
 	return service, nil
@@ -319,47 +328,33 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 		queryEmbedding[j] = float64(v)
 	}
 
-	// Get all product embeddings from database
+	// Get all product embeddings from PostgreSQL (no MariaDB joins)
+	// Product metadata is stored denormalized in the product_embeddings table
 	embeddingsQuery := `
 		SELECT
-			pe.product_id,
-			pe.embedding,
-			p.post_title,
-			p.post_name,
-			p.post_content,
-			p.post_excerpt,
-			l.sku,
-			l.min_price,
-			l.max_price,
-			l.stock_status,
-			l.stock_quantity,
-			GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS tags
-		FROM product_embeddings pe
-		JOIN wpjr_posts p ON p.ID = pe.product_id
-		JOIN wpjr_wc_product_meta_lookup l ON l.product_id = p.ID
-		LEFT JOIN wpjr_term_relationships tr ON tr.object_id = p.ID
-		LEFT JOIN wpjr_term_taxonomy tt ON tt.term_taxonomy_id = tr.term_taxonomy_id AND tt.taxonomy = 'product_tag'
-		LEFT JOIN wpjr_terms t ON t.term_id = tt.term_id
-		WHERE p.post_type = 'product'
-			AND p.post_status IN ('publish','private')
-		GROUP BY
-			pe.product_id,
-			pe.embedding,
-			p.post_title,
-			p.post_name,
-			p.post_content,
-			p.post_excerpt,
-			l.sku,
-			l.min_price,
-			l.max_price,
-			l.stock_status,
-			l.stock_quantity
+			product_id,
+			embedding,
+			COALESCE(post_title, '') as post_title,
+			post_name,
+			description,
+			short_description,
+			sku,
+			min_price,
+			max_price,
+			stock_status,
+			stock_quantity,
+			tags
+		FROM product_embeddings
+		WHERE post_title IS NOT NULL AND post_title != ''
 	`
 
-	fmt.Printf("[VECTOR_SEARCH] Fetching product embeddings from database...\n")
-	rows, err := es.db.QueryContext(ctx, embeddingsQuery)
+	fmt.Printf("[PRODUCT_EMBEDDINGS] Fetching product embeddings from PostgreSQL (no MariaDB access)...\n")
+	if es.writeClient == nil {
+		return nil, false, fmt.Errorf("PostgreSQL write client not available for product embeddings search")
+	}
+	rows, err := es.writeClient.GetDB().QueryContext(ctx, embeddingsQuery)
 	if err != nil {
-		fmt.Printf("[VECTOR_SEARCH] ERROR: Failed to fetch product embeddings: %v\n", err)
+		fmt.Printf("[PRODUCT_EMBEDDINGS] ❌ ERROR: Failed to fetch product embeddings from PostgreSQL: %v\n", err)
 		return nil, false, fmt.Errorf("failed to fetch product embeddings: %v", err)
 	}
 	defer rows.Close()
@@ -373,20 +368,54 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 		var embeddingJSON string
 		var product models.Product
 
+		// Use sql.NullString for nullable fields
+		var postName, description, shortDescription, sku, minPrice, maxPrice, stockStatus, tags sql.NullString
+		var stockQuantity sql.NullFloat64
+
 		err := rows.Scan(
 			&productID,
 			&embeddingJSON,
 			&product.PostTitle,
-			&product.PostName,
-			&product.Description,
-			&product.ShortDescription,
-			&product.SKU,
-			&product.MinPrice,
-			&product.MaxPrice,
-			&product.StockStatus,
-			&product.StockQuantity,
-			&product.Tags,
+			&postName,
+			&description,
+			&shortDescription,
+			&sku,
+			&minPrice,
+			&maxPrice,
+			&stockStatus,
+			&stockQuantity,
+			&tags,
 		)
+
+		// Convert nullable fields to pointers
+		if postName.Valid {
+			product.PostName = &postName.String
+		}
+		if description.Valid {
+			product.Description = &description.String
+		}
+		if shortDescription.Valid {
+			product.ShortDescription = &shortDescription.String
+		}
+		if sku.Valid {
+			product.SKU = &sku.String
+		}
+		if minPrice.Valid {
+			product.MinPrice = &minPrice.String
+		}
+		if maxPrice.Valid {
+			product.MaxPrice = &maxPrice.String
+		}
+		if stockStatus.Valid {
+			product.StockStatus = &stockStatus.String
+		}
+		if stockQuantity.Valid {
+			product.StockQuantity = &stockQuantity.Float64
+		}
+		if tags.Valid {
+			product.Tags = &tags.String
+		}
+
 		if err != nil {
 			skippedCount++
 			continue // Skip invalid rows

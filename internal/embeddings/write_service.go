@@ -313,7 +313,7 @@ func (wes *WriteEmbeddingService) buildProductText(product models.Product) strin
 	return text
 }
 
-// storeEmbedding stores a product embedding in the database
+// storeEmbedding stores a product embedding with metadata in PostgreSQL
 func (wes *WriteEmbeddingService) storeEmbedding(product models.Product, embedding []float64) error {
 	// Convert embedding to JSON
 	embeddingJSON, err := json.Marshal(embedding)
@@ -321,16 +321,62 @@ func (wes *WriteEmbeddingService) storeEmbedding(product models.Product, embeddi
 		return fmt.Errorf("failed to marshal embedding: %v", err)
 	}
 
-	// Store in database (PostgreSQL-compatible UPSERT)
+	// Store in PostgreSQL with product metadata (denormalized for search performance)
+	// This allows searching without querying MariaDB
 	query := `
-		INSERT INTO product_embeddings (product_id, embedding, created_at, updated_at)
-		VALUES ($1, $2, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		INSERT INTO product_embeddings (
+			product_id, embedding, 
+			post_title, post_name, description, short_description,
+			sku, min_price, max_price, stock_status, stock_quantity, tags,
+			created_at, updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		ON CONFLICT (product_id) DO UPDATE SET
 			embedding = EXCLUDED.embedding,
+			post_title = EXCLUDED.post_title,
+			post_name = EXCLUDED.post_name,
+			description = EXCLUDED.description,
+			short_description = EXCLUDED.short_description,
+			sku = EXCLUDED.sku,
+			min_price = EXCLUDED.min_price,
+			max_price = EXCLUDED.max_price,
+			stock_status = EXCLUDED.stock_status,
+			stock_quantity = EXCLUDED.stock_quantity,
+			tags = EXCLUDED.tags,
 			updated_at = CURRENT_TIMESTAMP
 	`
 
-	_, err = wes.writeDB.ExecuteWriteQuery(query, product.ID, string(embeddingJSON))
+	// Convert pointers to values for SQL
+	postName := getStringValue(product.PostName)
+	description := getStringValue(product.Description)
+	shortDescription := getStringValue(product.ShortDescription)
+	sku := getStringValue(product.SKU)
+	minPrice := getStringValue(product.MinPrice)
+	maxPrice := getStringValue(product.MaxPrice)
+	stockStatus := getStringValue(product.StockStatus)
+	tags := getStringValue(product.Tags)
+
+	var stockQuantity interface{}
+	if product.StockQuantity != nil {
+		stockQuantity = *product.StockQuantity
+	} else {
+		stockQuantity = nil
+	}
+
+	_, err = wes.writeDB.ExecuteWriteQuery(query,
+		product.ID,
+		string(embeddingJSON),
+		product.PostTitle,
+		postName,
+		description,
+		shortDescription,
+		sku,
+		minPrice,
+		maxPrice,
+		stockStatus,
+		stockQuantity,
+		tags,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to store embedding: %v", err)
 	}
@@ -338,13 +384,31 @@ func (wes *WriteEmbeddingService) storeEmbedding(product models.Product, embeddi
 	return nil
 }
 
-// CreateEmbeddingsTable creates the table for storing product embeddings
+// getStringValue safely extracts string value from pointer
+func getStringValue(ptr *string) interface{} {
+	if ptr == nil {
+		return nil
+	}
+	return *ptr
+}
+
+// CreateEmbeddingsTable creates the table for storing product embeddings with metadata
 func (wes *WriteEmbeddingService) CreateEmbeddingsTable() error {
-	// PostgreSQL-compatible SQL (works for both Postgres and MySQL with minor differences)
+	// PostgreSQL table with product metadata denormalized for search performance
 	query := `
 		CREATE TABLE IF NOT EXISTS product_embeddings (
 			product_id INT PRIMARY KEY,
 			embedding JSONB NOT NULL,
+			post_title TEXT,
+			post_name TEXT,
+			description TEXT,
+			short_description TEXT,
+			sku TEXT,
+			min_price TEXT,
+			max_price TEXT,
+			stock_status TEXT,
+			stock_quantity NUMERIC,
+			tags TEXT,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)
@@ -354,10 +418,18 @@ func (wes *WriteEmbeddingService) CreateEmbeddingsTable() error {
 		return err
 	}
 
-	// Create index separately (PostgreSQL syntax)
-	indexQuery := `CREATE INDEX IF NOT EXISTS idx_product_embeddings_product_id ON product_embeddings(product_id)`
-	_, err := wes.writeDB.ExecuteWriteQuery(indexQuery)
-	return err
+	// Create indexes separately (PostgreSQL syntax)
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_product_embeddings_product_id ON product_embeddings(product_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_product_embeddings_post_title ON product_embeddings(post_title) WHERE post_title IS NOT NULL`,
+	}
+	for _, indexQuery := range indexes {
+		if _, err := wes.writeDB.ExecuteWriteQuery(indexQuery); err != nil {
+			// Log but don't fail on index creation errors
+			fmt.Printf("[EMBEDDING_SERVICE] Warning: Failed to create index: %v\n", err)
+		}
+	}
+	return nil
 }
 
 // SearchSimilarProducts finds products similar to the query using vector similarity
@@ -390,47 +462,30 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 	queryTokens := utils.ExtractMeaningfulTokens(query)
 	queryTokens = wes.expandSynonyms(queryTokens)
 
-	// Get all product embeddings from database
+	// Get all product embeddings from PostgreSQL only (no MariaDB joins)
+	// Product metadata is stored denormalized in the product_embeddings table
 	embeddingsQuery := `
 		SELECT
-			pe.product_id,
-			pe.embedding,
-			p.post_title,
-			p.post_name,
-			p.post_content,
-			p.post_excerpt,
-			l.sku,
-			l.min_price,
-			l.max_price,
-			l.stock_status,
-			l.stock_quantity,
-			GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS tags
-		FROM product_embeddings pe
-		JOIN wpjr_posts p ON p.ID = pe.product_id
-		JOIN wpjr_wc_product_meta_lookup l ON l.product_id = p.ID
-		LEFT JOIN wpjr_term_relationships tr ON tr.object_id = p.ID
-		LEFT JOIN wpjr_term_taxonomy tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
-		LEFT JOIN wpjr_terms t ON t.term_id = tt.term_id
-		WHERE p.post_type = 'product'
-			AND p.post_status IN ('publish','private')
-		GROUP BY
-			pe.product_id,
-			pe.embedding,
-			p.post_title,
-			p.post_name,
-			p.post_content,
-			p.post_excerpt,
-			l.sku,
-			l.min_price,
-			l.max_price,
-			l.stock_status,
-			l.stock_quantity
+			product_id,
+			embedding,
+			COALESCE(post_title, '') as post_title,
+			post_name,
+			description,
+			short_description,
+			sku,
+			min_price,
+			max_price,
+			stock_status,
+			stock_quantity,
+			tags
+		FROM product_embeddings
+		WHERE post_title IS NOT NULL AND post_title != ''
 	`
 
-	fmt.Printf("[WRITE_VECTOR_SEARCH] Fetching product embeddings from database...\n")
+	fmt.Printf("[WRITE_VECTOR_SEARCH] Fetching product embeddings from PostgreSQL (no MariaDB access)...\n")
 
 	// We need to manually scan the results since we have a JSON field
-	rows, err := wes.writeDB.GetDB().Query(embeddingsQuery)
+	rows, err := wes.writeDB.GetDB().QueryContext(ctx, embeddingsQuery)
 	if err != nil {
 		fmt.Printf("[WRITE_VECTOR_SEARCH] ERROR: Failed to fetch product embeddings: %v\n", err)
 		return nil, fmt.Errorf("failed to fetch product embeddings: %v", err)
@@ -442,18 +497,18 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 		var productID int
 		var embeddingJSON string
 		var product models.Product
-		var postContent, postExcerpt, sku, stockStatus sql.NullString
-		var minPrice, maxPrice sql.NullFloat64
-		var stockQuantity sql.NullInt64
-		var tags sql.NullString
 
+		// Use sql.NullString for nullable fields
+		var postName, description, shortDescription, sku, minPrice, maxPrice, stockStatus, tags sql.NullString
+		var stockQuantity sql.NullFloat64
+		
 		err := rows.Scan(
 			&productID,
 			&embeddingJSON,
 			&product.PostTitle,
-			&product.PostName,
-			&postContent,
-			&postExcerpt,
+			&postName,
+			&description,
+			&shortDescription,
 			&sku,
 			&minPrice,
 			&maxPrice,
@@ -461,8 +516,38 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 			&stockQuantity,
 			&tags,
 		)
+		
 		if err != nil {
 			continue // Skip invalid rows
+		}
+		
+		// Convert nullable fields to pointers
+		if postName.Valid {
+			product.PostName = &postName.String
+		}
+		if description.Valid {
+			product.Description = &description.String
+		}
+		if shortDescription.Valid {
+			product.ShortDescription = &shortDescription.String
+		}
+		if sku.Valid {
+			product.SKU = &sku.String
+		}
+		if minPrice.Valid {
+			product.MinPrice = &minPrice.String
+		}
+		if maxPrice.Valid {
+			product.MaxPrice = &maxPrice.String
+		}
+		if stockStatus.Valid {
+			product.StockStatus = &stockStatus.String
+		}
+		if stockQuantity.Valid {
+			product.StockQuantity = &stockQuantity.Float64
+		}
+		if tags.Valid {
+			product.Tags = &tags.String
 		}
 
 		// Parse the embedding JSON
@@ -471,39 +556,14 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 			continue // Skip invalid embeddings
 		}
 
-		// Set product fields
-		if postContent.Valid {
-			product.Description = &postContent.String
-		}
-		if postExcerpt.Valid {
-			product.ShortDescription = &postExcerpt.String
-		}
-		if sku.Valid {
-			product.SKU = &sku.String
-		}
-		if minPrice.Valid {
-			minPriceStr := fmt.Sprintf("%.2f", minPrice.Float64)
-			product.MinPrice = &minPriceStr
-		}
-		if maxPrice.Valid {
-			maxPriceStr := fmt.Sprintf("%.2f", maxPrice.Float64)
-			product.MaxPrice = &maxPriceStr
-		}
-		if stockStatus.Valid {
-			product.StockStatus = &stockStatus.String
-		}
-		if stockQuantity.Valid {
-			stockQuantityFloat := float64(stockQuantity.Int64)
-			product.StockQuantity = &stockQuantityFloat
-		}
-		if tags.Valid {
-			product.Tags = &tags.String
-		}
+		// Calculate cosine similarity
+		similarity := wes.cosineSimilarity(queryEmbedding, embedding)
 
 		product.ID = productID
 		results = append(results, ProductEmbedding{
-			Product:   product,
-			Embedding: embedding,
+			Product:    product,
+			Embedding:  embedding,
+			Similarity: similarity,
 		})
 	}
 

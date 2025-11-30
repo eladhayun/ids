@@ -29,20 +29,7 @@ type Server struct {
 
 // New creates a new server instance
 func New(cfg *config.Config, db *sqlx.DB, logger zerolog.Logger) *Server {
-	// Initialize embedding service if OpenAI API key is available
-	// Note: This uses read-only access for the main application
-	var embeddingService *embeddings.EmbeddingService
-	if cfg.OpenAIKey != "" && db != nil {
-		var err error
-		embeddingService, err = embeddings.NewEmbeddingService(cfg, db)
-		if err != nil {
-			logger.Warn().Err(err).Msg("Failed to initialize embedding service, falling back to regular chat")
-		} else {
-			logger.Info().Msg("Embedding service initialized successfully (read-only mode)")
-		}
-	}
-
-	// Initialize write client for PostgreSQL (email embeddings)
+	// Initialize write client for PostgreSQL (product and email embeddings)
 	var writeClient *database.WriteClient
 	if cfg.EmbeddingsDatabaseURL != "" {
 		var err error
@@ -51,6 +38,20 @@ func New(cfg *config.Config, db *sqlx.DB, logger zerolog.Logger) *Server {
 			logger.Warn().Err(err).Msg("Failed to initialize embeddings database connection")
 		} else {
 			logger.Info().Msg("Embeddings database connection established (PostgreSQL)")
+		}
+	}
+
+	// Initialize embedding service if OpenAI API key is available
+	// Note: db (MariaDB) is only used for reading product data when generating embeddings
+	// writeClient (PostgreSQL) is used for searching embeddings
+	var embeddingService *embeddings.EmbeddingService
+	if cfg.OpenAIKey != "" && writeClient != nil {
+		var err error
+		embeddingService, err = embeddings.NewEmbeddingService(cfg, db, writeClient)
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to initialize embedding service, falling back to regular chat")
+		} else {
+			logger.Info().Msg("Embedding service initialized successfully (PostgreSQL for search, MariaDB for generation)")
 		}
 	}
 
