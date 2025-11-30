@@ -21,8 +21,6 @@ linters:
       - ".*_test.go$"
     warn-unused: false
   settings:
-    govet:
-      shadow: true
     gocyclo:
       min-complexity: 15
     dupl:
