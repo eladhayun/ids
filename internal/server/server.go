@@ -152,10 +152,8 @@ func (s *Server) setupRoutes() {
 
 	// Admin endpoints
 	admin := api.Group("/admin")
-	admin.POST("/trigger-email-import", handlers.TriggerEmailImportHandler(s.config))
-	admin.GET("/email-import-status/:jobName", handlers.GetEmailImportStatusHandler(s.config))
-	admin.POST("/import-emails-to-db", handlers.ProcessEmailsFromStorage)
-	admin.POST("/generate-thread-embeddings", handlers.GenerateThreadEmbeddingsHandler)
+	admin.POST("/import-emails", handlers.TriggerEmailImportHandler(s.config))                 // Triggers end-to-end email import (download + import + embed)
+	admin.GET("/email-import-status/:jobName", handlers.GetEmailImportStatusHandler(s.config)) // Get job status
 
 	// Handle favicon requests
 	s.echo.GET("/favicon.ico", func(c echo.Context) error {

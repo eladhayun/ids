@@ -37,9 +37,9 @@ type JobStatus struct {
 	CompletionTime *string `json:"completion_time,omitempty"`
 }
 
-// TriggerEmailImportHandler triggers a Kubernetes Job to import emails from Azure Blob Storage
-// @Summary Trigger email import job
-// @Description Triggers a Kubernetes Job that downloads emails from Azure Blob Storage and imports them into the database
+// TriggerEmailImportHandler triggers a Kubernetes Job to import emails end-to-end
+// @Summary Trigger end-to-end email import
+// @Description Triggers a Kubernetes Job that downloads emails from Azure Blob Storage, imports them into PostgreSQL, and generates embeddings (all in one job)
 // @Tags admin
 // @Accept json
 // @Produce json
@@ -47,7 +47,7 @@ type JobStatus struct {
 // @Success 200 {object} TriggerEmailImportResponse
 // @Failure 400 {object} TriggerEmailImportResponse
 // @Failure 500 {object} TriggerEmailImportResponse
-// @Router /api/admin/trigger-email-import [post]
+// @Router /api/admin/import-emails [post]
 func TriggerEmailImportHandler(cfg *config.Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		fmt.Println("[EMAIL_IMPORT_JOB] Received trigger request")
