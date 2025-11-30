@@ -113,7 +113,7 @@ func ChatVectorHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embe
 		fmt.Printf("[CHAT_VECTOR] Filtering for in-stock products...\n")
 		var inStockProducts []embeddings.ProductEmbedding
 		for _, product := range similarProducts {
-			if product.Product.StockStatus != nil && *product.Product.StockStatus == "instock" {
+			if product.Product.StockStatus != nil && *product.Product.StockStatus == stockStatusInStock {
 				inStockProducts = append(inStockProducts, product)
 			}
 		}
@@ -286,7 +286,7 @@ IMPORTANT:
 
 		// Add stock status
 		if product.Product.StockStatus != nil {
-			if *product.Product.StockStatus == "instock" {
+			if *product.Product.StockStatus == stockStatusInStock {
 				productContext.WriteString(" - In Stock")
 			} else {
 				productContext.WriteString(" - Out of Stock")

@@ -201,10 +201,16 @@ func (ees *EmailEmbeddingService) updateThread(threadID string, email *models.Em
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			fmt.Printf("Warning: Error closing rows: %v\n", err)
+		}
+	}()
 
 	if rows.Next() {
-		rows.Scan(&exists)
+		if err := rows.Scan(&exists); err != nil {
+			return fmt.Errorf("failed to scan exists check: %w", err)
+		}
 	}
 
 	if exists {
@@ -253,7 +259,11 @@ func (ees *EmailEmbeddingService) GenerateEmailEmbeddings() error {
 	if err != nil {
 		return fmt.Errorf("failed to fetch emails: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			fmt.Printf("Warning: Error closing rows: %v\n", err)
+		}
+	}()
 
 	var emails []models.Email
 	for rows.Next() {
@@ -365,7 +375,11 @@ func (ees *EmailEmbeddingService) GenerateThreadEmbeddings() error {
 	if err != nil {
 		return fmt.Errorf("failed to fetch threads: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			fmt.Printf("Warning: Error closing rows: %v\n", err)
+		}
+	}()
 
 	var threads []models.EmailThread
 	for rows.Next() {
@@ -418,7 +432,11 @@ func (ees *EmailEmbeddingService) generateThreadEmbedding(threadID string) error
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			fmt.Printf("Warning: Error closing rows: %v\n", err)
+		}
+	}()
 
 	var emails []models.Email
 	for rows.Next() {
@@ -617,7 +635,11 @@ func (ees *EmailEmbeddingService) SearchSimilarEmails(query string, limit int, s
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			fmt.Printf("Warning: Error closing rows: %v\n", err)
+		}
+	}()
 
 	var results []models.EmailSearchResult
 

@@ -171,34 +171,41 @@ func (es *EmbeddingService) GenerateProductEmbeddings() error {
 }
 
 // processBatch processes a batch of products and generates embeddings
-func (es *EmbeddingService) processBatch(products []models.Product) error {
-	fmt.Printf("[EMBEDDING_GEN] Processing batch of %d products\n", len(products))
+// processBatchCommon is a shared helper for processing batches of products
+func processBatchCommon(
+	products []models.Product,
+	client *openai.Client,
+	buildText func(models.Product) string,
+	storeEmbedding func(models.Product, []float64) error,
+	logPrefix string,
+) error {
+	fmt.Printf("[%s] Processing batch of %d products\n", logPrefix, len(products))
 
 	// Prepare texts for embedding
-	fmt.Printf("[EMBEDDING_GEN] Building product texts...\n")
+	fmt.Printf("[%s] Building product texts...\n", logPrefix)
 	texts := make([]string, len(products))
 	for i, product := range products {
-		texts[i] = es.buildProductText(product)
+		texts[i] = buildText(product)
 	}
 
 	// Generate embeddings
-	fmt.Printf("[EMBEDDING_GEN] Sending batch to OpenAI API...\n")
+	fmt.Printf("[%s] Sending batch to OpenAI API...\n", logPrefix)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	resp, err := es.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
+	resp, err := client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
 		Input: texts,
 		Model: openai.SmallEmbedding3,
 	})
 	if err != nil {
-		fmt.Printf("[EMBEDDING_GEN] ERROR: Failed to generate embeddings: %v\n", err)
+		fmt.Printf("[%s] ERROR: Failed to generate embeddings: %v\n", logPrefix, err)
 		return fmt.Errorf("failed to generate embeddings: %v", err)
 	}
 
-	fmt.Printf("[EMBEDDING_GEN] Received %d embeddings from OpenAI\n", len(resp.Data))
+	fmt.Printf("[%s] Received %d embeddings from OpenAI\n", logPrefix, len(resp.Data))
 
 	// Store embeddings in database
-	fmt.Printf("[EMBEDDING_GEN] Storing embeddings in database...\n")
+	fmt.Printf("[%s] Storing embeddings in database...\n", logPrefix)
 	for i, embeddingData := range resp.Data {
 		product := products[i]
 		// Convert []float32 to []float64
@@ -206,14 +213,24 @@ func (es *EmbeddingService) processBatch(products []models.Product) error {
 		for j, v := range embeddingData.Embedding {
 			embedding[j] = float64(v)
 		}
-		if err := es.storeEmbedding(product, embedding); err != nil {
-			fmt.Printf("[EMBEDDING_GEN] ERROR: Failed to store embedding for product %d: %v\n", product.ID, err)
+		if err := storeEmbedding(product, embedding); err != nil {
+			fmt.Printf("[%s] ERROR: Failed to store embedding for product %d: %v\n", logPrefix, product.ID, err)
 			return fmt.Errorf("failed to store embedding for product %d: %v", product.ID, err)
 		}
 	}
 
-	fmt.Printf("[EMBEDDING_GEN] Successfully stored %d embeddings\n", len(resp.Data))
+	fmt.Printf("[%s] Successfully stored %d embeddings\n", logPrefix, len(resp.Data))
 	return nil
+}
+
+func (es *EmbeddingService) processBatch(products []models.Product) error {
+	return processBatchCommon(
+		products,
+		es.client,
+		es.buildProductText,
+		es.storeEmbedding,
+		"EMBEDDING_GEN",
+	)
 }
 
 // buildProductText creates a comprehensive text representation of a product
@@ -357,7 +374,11 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 		fmt.Printf("[PRODUCT_EMBEDDINGS] ❌ ERROR: Failed to fetch product embeddings from PostgreSQL: %v\n", err)
 		return nil, false, fmt.Errorf("failed to fetch product embeddings: %v", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			fmt.Printf("Warning: Error closing rows: %v\n", err)
+		}
+	}()
 
 	var results []ProductEmbedding
 	processedCount := 0
@@ -387,39 +408,13 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 			&tags,
 		)
 
-		// Convert nullable fields to pointers
-		if postName.Valid {
-			product.PostName = &postName.String
-		}
-		if description.Valid {
-			product.Description = &description.String
-		}
-		if shortDescription.Valid {
-			product.ShortDescription = &shortDescription.String
-		}
-		if sku.Valid {
-			product.SKU = &sku.String
-		}
-		if minPrice.Valid {
-			product.MinPrice = &minPrice.String
-		}
-		if maxPrice.Valid {
-			product.MaxPrice = &maxPrice.String
-		}
-		if stockStatus.Valid {
-			product.StockStatus = &stockStatus.String
-		}
-		if stockQuantity.Valid {
-			product.StockQuantity = &stockQuantity.Float64
-		}
-		if tags.Valid {
-			product.Tags = &tags.String
-		}
-
 		if err != nil {
 			skippedCount++
 			continue // Skip invalid rows
 		}
+
+		// Convert nullable fields to pointers
+		product = convertNullableFieldsToProduct(product, postName, description, shortDescription, sku, minPrice, maxPrice, stockStatus, tags, stockQuantity)
 
 		// Parse embedding
 		var embedding []float64
@@ -444,13 +439,7 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 
 	// Sort by similarity (highest first)
 	fmt.Printf("[VECTOR_SEARCH] Sorting %d results by similarity...\n", len(results))
-	for i := 0; i < len(results)-1; i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[i].Similarity < results[j].Similarity {
-				results[i], results[j] = results[j], results[i]
-			}
-		}
-	}
+	sortBySimilarity(results)
 
 	// Log top 5 results for debugging
 	if len(results) > 0 {
@@ -466,29 +455,7 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 	}
 
 	requiredTokens := es.requiredTokensFromQuery(query)
-	fallbackToSimilarity := false
-	if len(requiredTokens) > 0 {
-		fmt.Printf("[VECTOR_SEARCH] Applying exact-match filtering with tokens: %v\n", requiredTokens)
-
-		var filteredResults []ProductEmbedding
-		for _, result := range results {
-			productTokenSet := buildProductTokenSet(result.Product)
-			if ok, missing := utils.ContainsAllTokens(productTokenSet, requiredTokens); ok {
-				filteredResults = append(filteredResults, result)
-			} else {
-				fmt.Printf("[VECTOR_SEARCH] Filtering out product %d (%s); missing tokens: %v\n",
-					result.Product.ID, result.Product.PostTitle, missing)
-			}
-		}
-
-		if len(filteredResults) > 0 {
-			results = filteredResults
-			fmt.Printf("[VECTOR_SEARCH] %d products remain after token filtering\n", len(results))
-		} else {
-			fmt.Printf("[VECTOR_SEARCH] Token filtering removed all products, keeping similarity results\n")
-			fallbackToSimilarity = true
-		}
-	}
+	fallbackToSimilarity := applyTokenFiltering(&results, requiredTokens, es.tagTokenSet)
 
 	// Return top results
 	if limit > 0 && limit < len(results) {
@@ -518,6 +485,35 @@ func (es *EmbeddingService) cosineSimilarity(a, b []float64) float64 {
 	}
 
 	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
+}
+
+// applyTokenFiltering applies token-based filtering to results
+func applyTokenFiltering(results *[]ProductEmbedding, requiredTokens []string, tagTokenSet map[string]struct{}) bool {
+	if len(requiredTokens) == 0 {
+		return false
+	}
+
+	fmt.Printf("[VECTOR_SEARCH] Applying exact-match filtering with tokens: %v\n", requiredTokens)
+
+	var filteredResults []ProductEmbedding
+	for _, result := range *results {
+		productTokenSet := buildProductTokenSet(result.Product)
+		if ok, missing := utils.ContainsAllTokens(productTokenSet, requiredTokens); ok {
+			filteredResults = append(filteredResults, result)
+		} else {
+			fmt.Printf("[VECTOR_SEARCH] Filtering out product %d (%s); missing tokens: %v\n",
+				result.Product.ID, result.Product.PostTitle, missing)
+		}
+	}
+
+	if len(filteredResults) > 0 {
+		*results = filteredResults
+		fmt.Printf("[VECTOR_SEARCH] %d products remain after token filtering\n", len(*results))
+		return false
+	}
+
+	fmt.Printf("[VECTOR_SEARCH] Token filtering removed all products, keeping similarity results\n")
+	return true
 }
 
 func (es *EmbeddingService) requiredTokensFromQuery(query string) []string {

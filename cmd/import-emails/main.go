@@ -37,7 +37,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create database client: %v", err)
 	}
-	defer writeClient.Close()
+	defer func() {
+		if err := writeClient.Close(); err != nil {
+			log.Printf("Error closing write client: %v", err)
+		}
+	}()
 
 	// Create email embedding service
 	emailService, err := emails.NewEmailEmbeddingService(cfg, writeClient)

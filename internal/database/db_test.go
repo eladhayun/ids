@@ -82,7 +82,7 @@ func TestExecuteReadOnlyQuery(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mockDB, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			defer mockDB.Close()
+			defer func() { _ = mockDB.Close() }()
 
 			db := sqlx.NewDb(mockDB, "sqlmock")
 			tt.setupMock(mock)
@@ -179,7 +179,7 @@ func TestExecuteReadOnlyQuerySingle(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mockDB, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			defer mockDB.Close()
+			defer func() { _ = mockDB.Close() }()
 
 			db := sqlx.NewDb(mockDB, "sqlmock")
 			tt.setupMock(mock)
@@ -250,7 +250,7 @@ func TestExecuteReadOnlyPing(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			mockDB, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			defer mockDB.Close()
+			defer func() { _ = mockDB.Close() }()
 
 			db := sqlx.NewDb(mockDB, "sqlmock")
 			tt.setupMock(mock)
@@ -276,7 +276,7 @@ func TestExecuteReadOnlyPing(t *testing.T) {
 func TestExecuteReadOnlyQuery_ContextCancellation(t *testing.T) {
 	mockDB, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer mockDB.Close()
+	defer func() { _ = mockDB.Close() }()
 
 	db := sqlx.NewDb(mockDB, "sqlmock")
 
@@ -300,7 +300,7 @@ func TestExecuteReadOnlyQuery_ContextCancellation(t *testing.T) {
 func TestExecuteReadOnlyQuerySingle_ContextCancellation(t *testing.T) {
 	mockDB, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer mockDB.Close()
+	defer func() { _ = mockDB.Close() }()
 
 	db := sqlx.NewDb(mockDB, "sqlmock")
 
@@ -324,7 +324,7 @@ func TestExecuteReadOnlyQuerySingle_ContextCancellation(t *testing.T) {
 func TestExecuteReadOnlyPing_ContextCancellation(t *testing.T) {
 	mockDB, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer mockDB.Close()
+	defer func() { _ = mockDB.Close() }()
 
 	db := sqlx.NewDb(mockDB, "sqlmock")
 
@@ -344,7 +344,7 @@ func TestExecuteReadOnlyPing_ContextCancellation(t *testing.T) {
 func TestExecuteReadOnlyQuery_MultipleRows(t *testing.T) {
 	mockDB, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer mockDB.Close()
+	defer func() { _ = mockDB.Close() }()
 
 	db := sqlx.NewDb(mockDB, "sqlmock")
 
@@ -375,7 +375,7 @@ func TestExecuteReadOnlyQuery_MultipleRows(t *testing.T) {
 func BenchmarkExecuteReadOnlyQuery(b *testing.B) {
 	mockDB, mock, err := sqlmock.New()
 	require.NoError(b, err)
-	defer mockDB.Close()
+	defer func() { _ = mockDB.Close() }()
 
 	db := sqlx.NewDb(mockDB, "sqlmock")
 
@@ -392,14 +392,14 @@ func BenchmarkExecuteReadOnlyQuery(b *testing.B) {
 		var results []struct {
 			Val int `db:"1"`
 		}
-		ExecuteReadOnlyQuery(ctx, db, &results, "SELECT 1")
+		_ = ExecuteReadOnlyQuery(ctx, db, &results, "SELECT 1")
 	}
 }
 
 func BenchmarkExecuteReadOnlyQuerySingle(b *testing.B) {
 	mockDB, mock, err := sqlmock.New()
 	require.NoError(b, err)
-	defer mockDB.Close()
+	defer func() { _ = mockDB.Close() }()
 
 	db := sqlx.NewDb(mockDB, "sqlmock")
 
@@ -416,6 +416,6 @@ func BenchmarkExecuteReadOnlyQuerySingle(b *testing.B) {
 		var result struct {
 			Val int `db:"1"`
 		}
-		ExecuteReadOnlyQuerySingle(ctx, db, &result, "SELECT 1")
+		_ = ExecuteReadOnlyQuerySingle(ctx, db, &result, "SELECT 1")
 	}
 }

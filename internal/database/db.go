@@ -17,9 +17,13 @@ func New(databaseURL string) (*sqlx.DB, error) {
 	}
 
 	// Auto-detect driver from URL
-	driver := "mysql"
-	if len(databaseURL) > 8 && databaseURL[:8] == "postgres" {
-		driver = "postgres"
+	const (
+		driverMySQL    = "mysql"
+		driverPostgres = "postgres"
+	)
+	driver := driverMySQL
+	if len(databaseURL) > 8 && databaseURL[:8] == driverPostgres {
+		driver = driverPostgres
 	}
 
 	db, err := sqlx.Open(driver, databaseURL)
@@ -42,7 +46,7 @@ func New(databaseURL string) (*sqlx.DB, error) {
 
 	// Enforce read-only mode for MySQL connections (production database protection)
 	// This sets the session to read-only mode, preventing any writes
-	if driver == "mysql" {
+	if driver == driverMySQL {
 		_, err := db.Exec("SET SESSION TRANSACTION READ ONLY")
 		if err != nil {
 			// Log warning but don't fail - some MySQL users might not have permission to set this
@@ -76,7 +80,12 @@ func ExecuteReadOnlyQuery(ctx context.Context, db *sqlx.DB, dest interface{}, qu
 	if err != nil {
 		return fmt.Errorf("failed to begin read-only transaction: %w", err)
 	}
-	defer tx.Rollback() // Always rollback, we never commit read-only transactions
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			// Log but don't fail - rollback errors in read-only transactions are usually harmless
+			fmt.Printf("Warning: Error rolling back read-only transaction: %v\n", err)
+		}
+	}() // Always rollback, we never commit read-only transactions
 
 	// Execute the query
 	err = tx.SelectContext(ctx, dest, query, args...)
@@ -97,7 +106,12 @@ func ExecuteReadOnlyQuerySingle(ctx context.Context, db *sqlx.DB, dest interface
 	if err != nil {
 		return fmt.Errorf("failed to begin read-only transaction: %w", err)
 	}
-	defer tx.Rollback() // Always rollback, we never commit read-only transactions
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			// Log but don't fail - rollback errors in read-only transactions are usually harmless
+			fmt.Printf("Warning: Error rolling back read-only transaction: %v\n", err)
+		}
+	}() // Always rollback, we never commit read-only transactions
 
 	// Execute the query
 	err = tx.GetContext(ctx, dest, query, args...)
@@ -118,7 +132,12 @@ func ExecuteReadOnlyPing(ctx context.Context, db *sqlx.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin read-only transaction: %w", err)
 	}
-	defer tx.Rollback() // Always rollback, we never commit read-only transactions
+	defer func() {
+		if err := tx.Rollback(); err != nil {
+			// Log but don't fail - rollback errors in read-only transactions are usually harmless
+			fmt.Printf("Warning: Error rolling back read-only transaction: %v\n", err)
+		}
+	}() // Always rollback, we never commit read-only transactions
 
 	// Execute a simple query to test the connection in read-only mode
 	var result int

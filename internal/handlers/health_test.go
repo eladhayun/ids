@@ -165,7 +165,7 @@ func TestDBHealthHandler(t *testing.T) {
 			if tt.db == nil && tt.setupMock != nil {
 				mockDB, mock, err := sqlmock.New()
 				require.NoError(t, err)
-				defer mockDB.Close()
+				defer func() { _ = mockDB.Close() }()
 
 				testDB = sqlx.NewDb(mockDB, "sqlmock")
 				tt.setupMock(mock)
@@ -260,7 +260,7 @@ func TestDBHealthHandler_Concurrency(t *testing.T) {
 	// We run multiple health checks sequentially since mocking concurrent DB calls is complex
 	mockDB, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer mockDB.Close()
+	defer func() { _ = mockDB.Close() }()
 
 	testDB := sqlx.NewDb(mockDB, "sqlmock")
 
@@ -294,7 +294,7 @@ func TestDBHealthHandler_ContextTimeout(t *testing.T) {
 	// Create a mock that will timeout
 	mockDB, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer mockDB.Close()
+	defer func() { _ = mockDB.Close() }()
 
 	testDB := sqlx.NewDb(mockDB, "sqlmock")
 

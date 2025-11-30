@@ -24,14 +24,14 @@ func TestLoad_DefaultValues(t *testing.T) {
 func TestLoad_CustomValues(t *testing.T) {
 	// Set environment variables
 	clearEnv(t)
-	os.Setenv("PORT", "9090")
-	os.Setenv("DATABASE_URL", "mysql://user:pass@localhost:3306/testdb")
-	os.Setenv("VERSION", "2.0.0")
-	os.Setenv("LOG_LEVEL", "debug")
-	os.Setenv("OPENAI_API_KEY", "test-key-123")
-	os.Setenv("WAIT_FOR_TUNNEL", "false")
-	os.Setenv("OPENAI_TIMEOUT", "120")
-	os.Setenv("EMBEDDING_SCHEDULE_INTERVAL_HOURS", "24")
+	_ = os.Setenv("PORT", "9090")
+	_ = os.Setenv("DATABASE_URL", "mysql://user:pass@localhost:3306/testdb")
+	_ = os.Setenv("VERSION", "2.0.0")
+	_ = os.Setenv("LOG_LEVEL", "debug")
+	_ = os.Setenv("OPENAI_API_KEY", "test-key-123")
+	_ = os.Setenv("WAIT_FOR_TUNNEL", "false")
+	_ = os.Setenv("OPENAI_TIMEOUT", "120")
+	_ = os.Setenv("EMBEDDING_SCHEDULE_INTERVAL_HOURS", "24")
 
 	cfg := Load()
 
@@ -47,8 +47,8 @@ func TestLoad_CustomValues(t *testing.T) {
 
 func TestLoad_PartialCustomValues(t *testing.T) {
 	clearEnv(t)
-	os.Setenv("PORT", "3000")
-	os.Setenv("OPENAI_API_KEY", "sk-test")
+	_ = os.Setenv("PORT", "3000")
+	_ = os.Setenv("OPENAI_API_KEY", "sk-test")
 
 	cfg := Load()
 
@@ -98,8 +98,8 @@ func TestGetEnv(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.value != "" {
-				os.Setenv(tt.key, tt.value)
-				defer os.Unsetenv(tt.key)
+				_ = os.Setenv(tt.key, tt.value)
+				defer func() { _ = os.Unsetenv(tt.key) }()
 			}
 
 			result := getEnv(tt.key, tt.defaultValue)
@@ -163,8 +163,8 @@ func TestGetEnvInt(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.value != "" {
-				os.Setenv(tt.key, tt.value)
-				defer os.Unsetenv(tt.key)
+				_ = os.Setenv(tt.key, tt.value)
+				defer func() { _ = os.Unsetenv(tt.key) }()
 			}
 
 			result := getEnvInt(tt.key, tt.defaultValue)
@@ -242,8 +242,8 @@ func TestGetEnvBool(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.value != "" {
-				os.Setenv(tt.key, tt.value)
-				defer os.Unsetenv(tt.key)
+				_ = os.Setenv(tt.key, tt.value)
+				defer func() { _ = os.Unsetenv(tt.key) }()
 			}
 
 			result := getEnvBool(tt.key, tt.defaultValue)
@@ -280,7 +280,7 @@ func TestSetupLogger(t *testing.T) {
 
 func TestLoad_EmptyDatabaseURL(t *testing.T) {
 	clearEnv(t)
-	os.Unsetenv("DATABASE_URL")
+	_ = os.Unsetenv("DATABASE_URL")
 
 	cfg := Load()
 	assert.Empty(t, cfg.DatabaseURL)
@@ -288,7 +288,7 @@ func TestLoad_EmptyDatabaseURL(t *testing.T) {
 
 func TestLoad_EmptyOpenAIKey(t *testing.T) {
 	clearEnv(t)
-	os.Unsetenv("OPENAI_API_KEY")
+	_ = os.Unsetenv("OPENAI_API_KEY")
 
 	cfg := Load()
 	assert.Empty(t, cfg.OpenAIKey)
@@ -298,16 +298,16 @@ func TestLoad_EdgeCaseValues(t *testing.T) {
 	clearEnv(t)
 
 	// Test very large timeout
-	os.Setenv("OPENAI_TIMEOUT", "999999")
-	os.Setenv("EMBEDDING_SCHEDULE_INTERVAL_HOURS", "999999")
+	_ = os.Setenv("OPENAI_TIMEOUT", "999999")
+	_ = os.Setenv("EMBEDDING_SCHEDULE_INTERVAL_HOURS", "999999")
 
 	cfg := Load()
 	assert.Equal(t, 999999, cfg.OpenAITimeout)
 	assert.Equal(t, 999999, cfg.EmbeddingScheduleHours)
 
 	// Test zero values
-	os.Setenv("OPENAI_TIMEOUT", "0")
-	os.Setenv("EMBEDDING_SCHEDULE_INTERVAL_HOURS", "0")
+	_ = os.Setenv("OPENAI_TIMEOUT", "0")
+	_ = os.Setenv("EMBEDDING_SCHEDULE_INTERVAL_HOURS", "0")
 
 	cfg = Load()
 	assert.Equal(t, 0, cfg.OpenAITimeout)
@@ -318,8 +318,8 @@ func TestLoad_SpecialCharacters(t *testing.T) {
 	clearEnv(t)
 
 	// Test special characters in values
-	os.Setenv("DATABASE_URL", "mysql://user:p@$$w0rd!@localhost:3306/db?charset=utf8mb4")
-	os.Setenv("OPENAI_API_KEY", "sk-test_key-123!@#$%")
+	_ = os.Setenv("DATABASE_URL", "mysql://user:p@$$w0rd!@localhost:3306/db?charset=utf8mb4")
+	_ = os.Setenv("OPENAI_API_KEY", "sk-test_key-123!@#$%")
 
 	cfg := Load()
 	assert.Equal(t, "mysql://user:p@$$w0rd!@localhost:3306/db?charset=utf8mb4", cfg.DatabaseURL)
@@ -362,13 +362,13 @@ func clearEnv(t *testing.T) {
 	}
 
 	for _, v := range vars {
-		os.Unsetenv(v)
+		_ = os.Unsetenv(v)
 	}
 
 	// Cleanup after test
 	t.Cleanup(func() {
 		for _, v := range vars {
-			os.Unsetenv(v)
+			_ = os.Unsetenv(v)
 		}
 	})
 }

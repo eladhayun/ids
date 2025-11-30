@@ -20,6 +20,8 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
+const stockStatusInStock = "instock"
+
 // ChatEnhancedHandler handles chat requests with both product and email context
 // @Summary Chat with AI using enhanced vector search (products + email history)
 // @Description Send a conversation to the AI chatbot and get a response with product recommendations enhanced by similar past conversations
@@ -123,7 +125,7 @@ func ChatEnhancedHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, em
 		// Filter to in-stock products
 		var inStockProducts []embeddings.ProductEmbedding
 		for _, product := range similarProducts {
-			if product.Product.StockStatus != nil && *product.Product.StockStatus == "instock" {
+			if product.Product.StockStatus != nil && *product.Product.StockStatus == stockStatusInStock {
 				inStockProducts = append(inStockProducts, product)
 			}
 		}
@@ -320,7 +322,7 @@ IMPORTANT:
 		}
 
 		if product.Product.StockStatus != nil {
-			if *product.Product.StockStatus == "instock" {
+			if *product.Product.StockStatus == stockStatusInStock {
 				productContext.WriteString(" - In Stock")
 			} else {
 				productContext.WriteString(" - Out of Stock")

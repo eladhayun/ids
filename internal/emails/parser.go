@@ -24,7 +24,11 @@ func ParseEMLFile(filename string) (*models.Email, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open EML file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			fmt.Printf("Warning: Error closing file: %v\n", err)
+		}
+	}()
 
 	return parseEmailMessage(file)
 }
@@ -66,7 +70,11 @@ func ParseMBOXFileStreaming(filename string, batchSize int, callback MBOXBatchCa
 	if err != nil {
 		return fmt.Errorf("failed to open MBOX file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			fmt.Printf("Warning: Error closing file: %v\n", err)
+		}
+	}()
 
 	// Get file size for progress tracking
 	fileInfo, err := file.Stat()
@@ -339,7 +347,7 @@ func extractMultipartBody(body io.Reader, boundary string) (string, error) {
 
 // extractSinglePartBody extracts text from a single part
 func extractSinglePartBody(body io.Reader, mediaType, transferEncoding string) (string, error) {
-	var reader io.Reader = body
+	reader := body
 
 	// Handle transfer encoding
 	switch strings.ToLower(transferEncoding) {

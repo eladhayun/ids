@@ -55,7 +55,11 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to connect to remote database:", err)
 	}
-	defer readDB.Close()
+	defer func() {
+		if err := readDB.Close(); err != nil {
+			log.Printf("Error closing read database: %v", err)
+		}
+	}()
 
 	// Initialize write-enabled database connection (local PostgreSQL for embeddings)
 	fmt.Println("Connecting to embeddings database with write access...")
@@ -63,7 +67,11 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to connect to embeddings database with write access:", err)
 	}
-	defer writeClient.Close()
+	defer func() {
+		if err := writeClient.Close(); err != nil {
+			log.Printf("Error closing write client: %v", err)
+		}
+	}()
 
 	// Create write-enabled embedding service with both connections
 	fmt.Println("Initializing embedding service...")

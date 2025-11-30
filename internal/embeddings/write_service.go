@@ -88,7 +88,11 @@ func (wes *WriteEmbeddingService) GenerateProductEmbeddings() error {
 		fmt.Printf("[WRITE_EMBEDDING_GEN] ERROR: Failed to fetch products: %v\n", err)
 		return fmt.Errorf("failed to fetch products: %v", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			fmt.Printf("Warning: Error closing rows: %v\n", err)
+		}
+	}()
 
 	for rows.Next() {
 		var product models.Product
@@ -150,48 +154,13 @@ func (wes *WriteEmbeddingService) GenerateSingleProductEmbedding(productID int) 
 
 // processBatch processes a batch of products and generates embeddings
 func (wes *WriteEmbeddingService) processBatch(products []models.Product) error {
-	fmt.Printf("[WRITE_EMBEDDING_GEN] Processing batch of %d products\n", len(products))
-
-	// Prepare texts for embedding
-	fmt.Printf("[WRITE_EMBEDDING_GEN] Building product texts...\n")
-	texts := make([]string, len(products))
-	for i, product := range products {
-		texts[i] = wes.buildProductText(product)
-	}
-
-	// Generate embeddings
-	fmt.Printf("[WRITE_EMBEDDING_GEN] Sending batch to OpenAI API...\n")
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	resp, err := wes.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
-		Input: texts,
-		Model: openai.SmallEmbedding3,
-	})
-	if err != nil {
-		fmt.Printf("[WRITE_EMBEDDING_GEN] ERROR: Failed to generate embeddings: %v\n", err)
-		return fmt.Errorf("failed to generate embeddings: %v", err)
-	}
-
-	fmt.Printf("[WRITE_EMBEDDING_GEN] Received %d embeddings from OpenAI\n", len(resp.Data))
-
-	// Store embeddings in database
-	fmt.Printf("[WRITE_EMBEDDING_GEN] Storing embeddings in database...\n")
-	for i, embeddingData := range resp.Data {
-		product := products[i]
-		// Convert []float32 to []float64
-		embedding := make([]float64, len(embeddingData.Embedding))
-		for j, v := range embeddingData.Embedding {
-			embedding[j] = float64(v)
-		}
-		if err := wes.storeEmbedding(product, embedding); err != nil {
-			fmt.Printf("[WRITE_EMBEDDING_GEN] ERROR: Failed to store embedding for product %d: %v\n", product.ID, err)
-			return fmt.Errorf("failed to store embedding for product %d: %v", product.ID, err)
-		}
-	}
-
-	fmt.Printf("[WRITE_EMBEDDING_GEN] Successfully stored %d embeddings\n", len(resp.Data))
-	return nil
+	return processBatchCommon(
+		products,
+		wes.client,
+		wes.buildProductText,
+		wes.storeEmbedding,
+		"WRITE_EMBEDDING_GEN",
+	)
 }
 
 // buildProductText creates a comprehensive text representation of a product
@@ -469,7 +438,11 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 		fmt.Printf("[WRITE_VECTOR_SEARCH] ERROR: Failed to fetch product embeddings: %v\n", err)
 		return nil, fmt.Errorf("failed to fetch product embeddings: %v", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			fmt.Printf("Warning: Error closing rows: %v\n", err)
+		}
+	}()
 
 	var results []ProductEmbedding
 	for rows.Next() {
@@ -501,33 +474,7 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 		}
 
 		// Convert nullable fields to pointers
-		if postName.Valid {
-			product.PostName = &postName.String
-		}
-		if description.Valid {
-			product.Description = &description.String
-		}
-		if shortDescription.Valid {
-			product.ShortDescription = &shortDescription.String
-		}
-		if sku.Valid {
-			product.SKU = &sku.String
-		}
-		if minPrice.Valid {
-			product.MinPrice = &minPrice.String
-		}
-		if maxPrice.Valid {
-			product.MaxPrice = &maxPrice.String
-		}
-		if stockStatus.Valid {
-			product.StockStatus = &stockStatus.String
-		}
-		if stockQuantity.Valid {
-			product.StockQuantity = &stockQuantity.Float64
-		}
-		if tags.Valid {
-			product.Tags = &tags.String
-		}
+		product = convertNullableFieldsToProduct(product, postName, description, shortDescription, sku, minPrice, maxPrice, stockStatus, tags, stockQuantity)
 
 		// Parse the embedding JSON
 		var embedding []float64
@@ -554,55 +501,11 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 	fmt.Printf("[WRITE_VECTOR_SEARCH] Processed %d products\n", len(results))
 
 	// Calculate similarities and sort
-	for i := range results {
-		// Calculate cosine similarity using the already parsed embedding
-		baseSimilarity := wes.cosineSimilarity(queryEmbedding, results[i].Embedding)
-
-		// Apply boosting based on term matching
-		boost := 0.0
-
-		// Check for exact matches in title (high boost)
-		lowerTitle := strings.ToLower(results[i].Product.PostTitle)
-		lowerQuery := strings.ToLower(query)
-		if strings.Contains(lowerTitle, lowerQuery) {
-			boost += 0.2
-		}
-
-		// Check for token matches in tags and title
-		for _, token := range queryTokens {
-			if len(token) < 3 {
-				continue
-			} // Skip short tokens
-
-			if results[i].Product.Tags != nil {
-				lowerTags := strings.ToLower(*results[i].Product.Tags)
-				if strings.Contains(lowerTags, token) {
-					boost += 0.25 // Boost for tag match
-				}
-			}
-
-			if strings.Contains(lowerTitle, token) {
-				boost += 0.05 // Boost for title token match (increased from 0.02)
-			}
-		}
-
-		// Cap boost
-		if boost > 0.3 {
-			boost = 0.3
-		}
-
-		results[i].Similarity = baseSimilarity + boost
-	}
+	applySimilarityBoosting(results, queryEmbedding, query, queryTokens, wes.cosineSimilarity)
 
 	// Sort by similarity (highest first)
 	fmt.Printf("[WRITE_VECTOR_SEARCH] Sorting %d results by similarity...\n", len(results))
-	for i := 0; i < len(results)-1; i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[i].Similarity < results[j].Similarity {
-				results[i], results[j] = results[j], results[i]
-			}
-		}
-	}
+	sortBySimilarity(results)
 
 	// Log top 5 results for debugging
 	if len(results) > 0 {
@@ -625,6 +528,104 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 
 	fmt.Printf("[WRITE_VECTOR_SEARCH] Returning %d products\n", len(results))
 	return results, nil
+}
+
+// convertNullableFieldsToProduct converts sql.NullString and sql.NullFloat64 to product pointers
+func convertNullableFieldsToProduct(
+	product models.Product,
+	postName, description, shortDescription, sku, minPrice, maxPrice, stockStatus, tags sql.NullString,
+	stockQuantity sql.NullFloat64,
+) models.Product {
+	if postName.Valid {
+		product.PostName = &postName.String
+	}
+	if description.Valid {
+		product.Description = &description.String
+	}
+	if shortDescription.Valid {
+		product.ShortDescription = &shortDescription.String
+	}
+	if sku.Valid {
+		product.SKU = &sku.String
+	}
+	if minPrice.Valid {
+		product.MinPrice = &minPrice.String
+	}
+	if maxPrice.Valid {
+		product.MaxPrice = &maxPrice.String
+	}
+	if stockStatus.Valid {
+		product.StockStatus = &stockStatus.String
+	}
+	if stockQuantity.Valid {
+		product.StockQuantity = &stockQuantity.Float64
+	}
+	if tags.Valid {
+		product.Tags = &tags.String
+	}
+	return product
+}
+
+// applySimilarityBoosting applies term-based boosting to similarity scores
+func applySimilarityBoosting(
+	results []ProductEmbedding,
+	queryEmbedding []float64,
+	query string,
+	queryTokens []string,
+	cosineSimilarity func([]float64, []float64) float64,
+) {
+	for i := range results {
+		baseSimilarity := cosineSimilarity(queryEmbedding, results[i].Embedding)
+		boost := calculateBoost(results[i].Product, query, queryTokens)
+		results[i].Similarity = baseSimilarity + boost
+	}
+}
+
+// calculateBoost calculates the boost value based on term matching
+func calculateBoost(product models.Product, query string, queryTokens []string) float64 {
+	boost := 0.0
+	lowerTitle := strings.ToLower(product.PostTitle)
+	lowerQuery := strings.ToLower(query)
+
+	// Check for exact matches in title (high boost)
+	if strings.Contains(lowerTitle, lowerQuery) {
+		boost += 0.2
+	}
+
+	// Check for token matches in tags and title
+	for _, token := range queryTokens {
+		if len(token) < 3 {
+			continue
+		}
+
+		if product.Tags != nil {
+			lowerTags := strings.ToLower(*product.Tags)
+			if strings.Contains(lowerTags, token) {
+				boost += 0.25 // Boost for tag match
+			}
+		}
+
+		if strings.Contains(lowerTitle, token) {
+			boost += 0.05 // Boost for title token match
+		}
+	}
+
+	// Cap boost
+	if boost > 0.3 {
+		boost = 0.3
+	}
+	return boost
+}
+
+// sortBySimilarity sorts results by similarity in descending order
+func sortBySimilarity(results []ProductEmbedding) {
+	for i := 0; i < len(results)-1; i++ {
+		for j := i + 1; j < len(results); j++ {
+			if results[i].Similarity < results[j].Similarity {
+				results[i], results[j] = results[j], results[i]
+			}
+		}
+	}
 }
 
 // cosineSimilarity calculates cosine similarity between two vectors

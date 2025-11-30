@@ -22,9 +22,13 @@ func NewWriteClient(databaseURL string) (*WriteClient, error) {
 	writeURL := convertToWriteURL(databaseURL)
 
 	// Auto-detect driver from URL
-	driver := "mysql"
-	if len(writeURL) > 8 && writeURL[:8] == "postgres" {
-		driver = "postgres"
+	const (
+		driverMySQL    = "mysql"
+		driverPostgres = "postgres"
+	)
+	driver := driverMySQL
+	if len(writeURL) > 8 && writeURL[:8] == driverPostgres {
+		driver = driverPostgres
 	}
 
 	db, err := sqlx.Connect(driver, writeURL)
