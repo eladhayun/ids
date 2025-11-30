@@ -107,16 +107,18 @@ func ChatEnhancedHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, em
 		}
 
 		// Search for similar products
-		fmt.Printf("[CHAT_ENHANCED] Searching for similar products...\n")
+		fmt.Printf("[CHAT_ENHANCED] 🔍 DATASOURCE: Starting PRODUCT EMBEDDINGS search for query: '%s'\n", userQuery)
+		searchStart := time.Now()
 		similarProducts, fallbackToSimilarity, err := embeddingService.SearchSimilarProducts(userQuery, 20)
+		searchDuration := time.Since(searchStart)
 		if err != nil {
-			fmt.Printf("[CHAT_ENHANCED] ERROR: Product search failed: %v\n", err)
+			fmt.Printf("[CHAT_ENHANCED] ❌ ERROR: Product embeddings search failed: %v (took %v)\n", err, searchDuration)
 			return c.JSON(http.StatusInternalServerError, models.ChatResponse{
 				Error: fmt.Sprintf("Failed to search products: %v", err),
 			})
 		}
 
-		fmt.Printf("[CHAT_ENHANCED] Found %d similar products\n", len(similarProducts))
+		fmt.Printf("[CHAT_ENHANCED] ✅ DATASOURCE: PRODUCT EMBEDDINGS search completed - Found %d products (took %v, fallback=%t)\n", len(similarProducts), searchDuration, fallbackToSimilarity)
 
 		// Filter to in-stock products
 		var inStockProducts []embeddings.ProductEmbedding
@@ -135,15 +137,19 @@ func ChatEnhancedHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, em
 		// Search for similar email conversations (if enabled)
 		var similarEmails []models.EmailSearchResult
 		if cfg.EnableEmailContext && emailService != nil {
-			fmt.Printf("[CHAT_ENHANCED] Email context enabled - searching for similar email conversations...\n")
+			fmt.Printf("[CHAT_ENHANCED] 🔍 DATASOURCE: Starting EMAIL EMBEDDINGS search for query: '%s'\n", userQuery)
+			emailSearchStart := time.Now()
 			similarEmails, err = emailService.SearchSimilarEmails(userQuery, 5, true) // Search threads
+			emailSearchDuration := time.Since(emailSearchStart)
 			if err != nil {
-				fmt.Printf("[CHAT_ENHANCED] Warning: Email search failed: %v\n", err)
+				fmt.Printf("[CHAT_ENHANCED] ❌ ERROR: Email embeddings search failed: %v (took %v)\n", err, emailSearchDuration)
 			} else {
-				fmt.Printf("[CHAT_ENHANCED] Found %d similar email threads\n", len(similarEmails))
+				fmt.Printf("[CHAT_ENHANCED] ✅ DATASOURCE: EMAIL EMBEDDINGS search completed - Found %d similar email threads (took %v)\n", len(similarEmails), emailSearchDuration)
 			}
 		} else if !cfg.EnableEmailContext {
-			fmt.Printf("[CHAT_ENHANCED] Email context disabled - skipping email search\n")
+			fmt.Printf("[CHAT_ENHANCED] ⚠️  DATASOURCE: EMAIL EMBEDDINGS search skipped - Email context disabled in config\n")
+		} else if emailService == nil {
+			fmt.Printf("[CHAT_ENHANCED] ⚠️  DATASOURCE: EMAIL EMBEDDINGS search skipped - Email service not available\n")
 		}
 
 		// Create product metadata for frontend
@@ -198,6 +204,7 @@ func ChatEnhancedHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, em
 			response += fmt.Sprintf("\n\n**Found %d relevant products**", len(inStockProducts))
 		}
 
+		fmt.Printf("[CHAT_ENHANCED] 📊 DATASOURCE SUMMARY: Used %d product embeddings, %d email embeddings\n", len(inStockProducts), len(similarEmails))
 		fmt.Printf("[CHAT_ENHANCED] ===== REQUEST COMPLETE =====\n\n")
 
 		return c.JSON(http.StatusOK, models.ChatResponse{

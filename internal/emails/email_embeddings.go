@@ -563,17 +563,26 @@ func (ees *EmailEmbeddingService) storeEmailEmbedding(emailID int, threadID *str
 
 // SearchSimilarEmails finds emails or threads similar to a query
 func (ees *EmailEmbeddingService) SearchSimilarEmails(query string, limit int, searchThreads bool) ([]models.EmailSearchResult, error) {
+	searchType := "individual emails"
+	if searchThreads {
+		searchType = "email threads"
+	}
+	fmt.Printf("[EMAIL_EMBEDDINGS] 🔍 Querying EMAIL EMBEDDINGS datasource - Query: '%s', Limit: %d, Type: %s\n", query, limit, searchType)
+
 	// Generate embedding for query
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	fmt.Printf("[EMAIL_EMBEDDINGS] Generating query embedding...\n")
 	resp, err := ees.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
 		Input: []string{query},
 		Model: openai.SmallEmbedding3,
 	})
 	if err != nil {
+		fmt.Printf("[EMAIL_EMBEDDINGS] ❌ ERROR: Failed to generate query embedding: %v\n", err)
 		return nil, err
 	}
+	fmt.Printf("[EMAIL_EMBEDDINGS] Query embedding generated (dimensions: %d)\n", len(resp.Data[0].Embedding))
 
 	queryEmbedding := make([]float64, len(resp.Data[0].Embedding))
 	for j, v := range resp.Data[0].Embedding {
@@ -676,6 +685,11 @@ func (ees *EmailEmbeddingService) SearchSimilarEmails(query string, limit int, s
 	// Limit results
 	if limit > 0 && limit < len(results) {
 		results = results[:limit]
+	}
+
+	fmt.Printf("[EMAIL_EMBEDDINGS] ✅ EMAIL EMBEDDINGS query complete - Returning %d %s\n", len(results), searchType)
+	if len(results) > 0 {
+		fmt.Printf("[EMAIL_EMBEDDINGS] Top result similarity: %.3f\n", results[0].Similarity)
 	}
 
 	return results, nil

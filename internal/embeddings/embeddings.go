@@ -295,7 +295,7 @@ func (es *EmbeddingService) storeEmbedding(product models.Product, embedding []f
 
 // SearchSimilarProducts finds products similar to the query using vector similarity
 func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]ProductEmbedding, bool, error) {
-	fmt.Printf("[VECTOR_SEARCH] Starting search for query: '%s' with limit: %d\n", query, limit)
+	fmt.Printf("[PRODUCT_EMBEDDINGS] 🔍 Querying PRODUCT EMBEDDINGS datasource - Query: '%s', Limit: %d\n", query, limit)
 
 	// Generate embedding for the query
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -467,7 +467,7 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 		results = results[:limit]
 	}
 
-	fmt.Printf("[VECTOR_SEARCH] Returning %d products\n", len(results))
+	fmt.Printf("[PRODUCT_EMBEDDINGS] ✅ PRODUCT EMBEDDINGS query complete - Returning %d products (fallback=%t)\n", len(results), fallbackToSimilarity)
 	return results, fallbackToSimilarity, nil
 }
 
