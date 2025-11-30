@@ -351,11 +351,12 @@ func (ees *EmailEmbeddingService) processEmailBatch(emails []models.Email) error
 func (ees *EmailEmbeddingService) GenerateThreadEmbeddings() error {
 	fmt.Println("[THREAD_EMBEDDINGS] Starting thread embedding generation...")
 
-	// Get threads without embeddings
+	// Get threads without thread-level embeddings
+	// Note: email_embeddings stores both individual emails (email_id set) and thread embeddings (email_id NULL)
 	query := `
 		SELECT et.thread_id, et.subject, et.email_count, et.first_date, et.last_date
 		FROM email_threads et
-		LEFT JOIN email_embeddings ee ON ee.thread_id = et.thread_id
+		LEFT JOIN email_embeddings ee ON ee.thread_id = et.thread_id AND ee.email_id IS NULL
 		WHERE ee.id IS NULL AND et.email_count >= 2
 		ORDER BY et.last_date DESC
 	`
