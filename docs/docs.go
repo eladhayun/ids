@@ -91,38 +91,9 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/admin/import-emails-to-db": {
+        "/api/admin/import-emails": {
             "post": {
-                "description": "Import emails from storage to database with embeddings",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Admin"
-                ],
-                "summary": "Process downloaded emails",
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/handlers.ProcessEmailsResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/handlers.ProcessEmailsResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/admin/trigger-email-import": {
-            "post": {
-                "description": "Triggers a Kubernetes Job that downloads emails from Azure Blob Storage and imports them into the database",
+                "description": "Triggers a Kubernetes Job that downloads emails from Azure Blob Storage, imports them into PostgreSQL, and generates embeddings (all in one job)",
                 "consumes": [
                     "application/json"
                 ],
@@ -132,7 +103,7 @@ const docTemplate = `{
                 "tags": [
                     "admin"
                 ],
-                "summary": "Trigger email import job",
+                "summary": "Trigger end-to-end email import",
                 "parameters": [
                     {
                         "description": "Import job parameters",
@@ -345,29 +316,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "succeeded": {
-                    "type": "integer"
-                }
-            }
-        },
-        "handlers.ProcessEmailsResponse": {
-            "type": "object",
-            "properties": {
-                "emails_processed": {
-                    "type": "integer"
-                },
-                "embeddings_count": {
-                    "type": "integer"
-                },
-                "error": {
-                    "type": "string"
-                },
-                "message": {
-                    "type": "string"
-                },
-                "success": {
-                    "type": "boolean"
-                },
-                "threads_created": {
                     "type": "integer"
                 }
             }

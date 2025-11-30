@@ -16,21 +16,6 @@ definitions:
       succeeded:
         type: integer
     type: object
-  handlers.ProcessEmailsResponse:
-    properties:
-      emails_processed:
-        type: integer
-      embeddings_count:
-        type: integer
-      error:
-        type: string
-      message:
-        type: string
-      success:
-        type: boolean
-      threads_created:
-        type: integer
-    type: object
   handlers.TriggerEmailImportRequest:
     properties:
       source:
@@ -179,31 +164,13 @@ paths:
       summary: Get email import job status
       tags:
       - admin
-  /api/admin/import-emails-to-db:
-    post:
-      consumes:
-      - application/json
-      description: Import emails from storage to database with embeddings
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/handlers.ProcessEmailsResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handlers.ProcessEmailsResponse'
-      summary: Process downloaded emails
-      tags:
-      - Admin
-  /api/admin/trigger-email-import:
+  /api/admin/import-emails:
     post:
       consumes:
       - application/json
       description: Triggers a Kubernetes Job that downloads emails from Azure Blob
-        Storage and imports them into the database
+        Storage, imports them into PostgreSQL, and generates embeddings (all in one
+        job)
       parameters:
       - description: Import job parameters
         in: body
@@ -225,7 +192,7 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/handlers.TriggerEmailImportResponse'
-      summary: Trigger email import job
+      summary: Trigger end-to-end email import
       tags:
       - admin
   /api/chat:
