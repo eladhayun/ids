@@ -17,6 +17,57 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
+const (
+	// queryProducts fetches all products from the WordPress/WooCommerce database
+	queryProducts = `
+		SELECT
+			p.ID,
+			p.post_title,
+			p.post_name,
+			p.post_content AS description,
+			p.post_excerpt AS short_description,
+			l.sku,
+			l.min_price,
+			l.max_price,
+			l.stock_status,
+			l.stock_quantity,
+			GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS tags
+		FROM wpjr_wc_product_meta_lookup l
+		JOIN wpjr_posts p ON p.ID = l.product_id
+		LEFT JOIN wpjr_term_relationships tr ON tr.object_id = p.ID
+		LEFT JOIN wpjr_term_taxonomy tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+			AND tt.taxonomy = 'product_tag'
+		LEFT JOIN wpjr_terms t ON t.term_id = tt.term_id
+		WHERE p.post_type = 'product'
+			AND p.post_status IN ('publish','private')
+		GROUP BY
+			p.ID, p.post_title, p.post_name, p.post_content, p.post_excerpt,
+			l.sku, l.min_price, l.max_price, l.stock_status, l.stock_quantity
+		ORDER BY p.ID
+	`
+
+	// queryProductEmbeddings fetches product embeddings with metadata from PostgreSQL
+	queryProductEmbeddings = `
+		SELECT
+			product_id,
+			embedding,
+			COALESCE(post_title, '') as post_title,
+			post_name,
+			description,
+			short_description,
+			sku,
+			min_price,
+			max_price,
+			stock_status,
+			stock_quantity,
+			tags
+		FROM product_embeddings
+		WHERE post_title IS NOT NULL AND post_title != ''
+	`
+
+	stockStatusUnknown = "unknown"
+)
+
 // WriteEmbeddingService handles vector embeddings with write access
 type WriteEmbeddingService struct {
 	client  *openai.Client
@@ -51,39 +102,11 @@ func NewWriteEmbeddingService(cfg *config.Config, readDB *sql.DB, writeClient *d
 func (wes *WriteEmbeddingService) GenerateProductEmbeddings() error {
 	fmt.Printf("[WRITE_EMBEDDING_GEN] ===== STARTING EMBEDDING GENERATION =====\n")
 
-	// Get all products from database
-	query := `
-		SELECT
-			p.ID,
-			p.post_title,
-			p.post_name,
-			p.post_content AS description,
-			p.post_excerpt AS short_description,
-			l.sku,
-			l.min_price,
-			l.max_price,
-			l.stock_status,
-			l.stock_quantity,
-			GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS tags
-		FROM wpjr_wc_product_meta_lookup l
-		JOIN wpjr_posts p ON p.ID = l.product_id
-		LEFT JOIN wpjr_term_relationships tr ON tr.object_id = p.ID
-		LEFT JOIN wpjr_term_taxonomy tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
-			AND tt.taxonomy = 'product_tag'
-		LEFT JOIN wpjr_terms t ON t.term_id = tt.term_id
-		WHERE p.post_type = 'product'
-			AND p.post_status IN ('publish','private')
-		GROUP BY
-			p.ID, p.post_title, p.post_name, p.post_content, p.post_excerpt,
-			l.sku, l.min_price, l.max_price, l.stock_status, l.stock_quantity
-		ORDER BY p.ID
-	`
-
 	fmt.Printf("[WRITE_EMBEDDING_GEN] Fetching products from database...\n")
 	var products []models.Product
 
 	// Use readDB (MySQL) for reading products from remote database
-	rows, err := wes.readDB.Query(query)
+	rows, err := wes.readDB.Query(queryProducts)
 	if err != nil {
 		fmt.Printf("[WRITE_EMBEDDING_GEN] ERROR: Failed to fetch products: %v\n", err)
 		return fmt.Errorf("failed to fetch products: %v", err)
@@ -174,18 +197,7 @@ func (wes *WriteEmbeddingService) buildProductText(product models.Product) strin
 
 	// Add description
 	if product.Description != nil && *product.Description != "" {
-		// Clean HTML tags and limit length
-		desc := strings.ReplaceAll(*product.Description, "<br>", " ")
-		desc = strings.ReplaceAll(desc, "<p>", " ")
-		desc = strings.ReplaceAll(desc, "</p>", " ")
-		desc = strings.ReplaceAll(desc, "<div>", " ")
-		desc = strings.ReplaceAll(desc, "</div>", " ")
-		desc = strings.ReplaceAll(desc, "<span>", " ")
-		desc = strings.ReplaceAll(desc, "</span>", " ")
-		desc = strings.TrimSpace(desc)
-		if len(desc) > 500 {
-			desc = desc[:500] + "..."
-		}
+		desc := cleanHTMLDescription(*product.Description)
 		parts = append(parts, desc)
 	}
 
@@ -412,28 +424,10 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 
 	// Get all product embeddings from PostgreSQL only (no MariaDB joins)
 	// Product metadata is stored denormalized in the product_embeddings table
-	embeddingsQuery := `
-		SELECT
-			product_id,
-			embedding,
-			COALESCE(post_title, '') as post_title,
-			post_name,
-			description,
-			short_description,
-			sku,
-			min_price,
-			max_price,
-			stock_status,
-			stock_quantity,
-			tags
-		FROM product_embeddings
-		WHERE post_title IS NOT NULL AND post_title != ''
-	`
-
 	fmt.Printf("[WRITE_VECTOR_SEARCH] Fetching product embeddings from PostgreSQL (no MariaDB access)...\n")
 
 	// We need to manually scan the results since we have a JSON field
-	rows, err := wes.writeDB.GetDB().QueryContext(ctx, embeddingsQuery)
+	rows, err := wes.writeDB.GetDB().QueryContext(ctx, queryProductEmbeddings)
 	if err != nil {
 		fmt.Printf("[WRITE_VECTOR_SEARCH] ERROR: Failed to fetch product embeddings: %v\n", err)
 		return nil, fmt.Errorf("failed to fetch product embeddings: %v", err)
@@ -511,7 +505,7 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 	if len(results) > 0 {
 		fmt.Printf("[WRITE_VECTOR_SEARCH] Top 5 most similar products:\n")
 		for i := 0; i < 5 && i < len(results); i++ {
-			stockStatus := "unknown"
+			stockStatus := stockStatusUnknown
 			if results[i].Product.StockStatus != nil {
 				stockStatus = *results[i].Product.StockStatus
 			}
@@ -615,6 +609,23 @@ func calculateBoost(product models.Product, query string, queryTokens []string) 
 		boost = 0.3
 	}
 	return boost
+}
+
+// cleanHTMLDescription cleans HTML tags from a description string and limits its length
+func cleanHTMLDescription(desc string) string {
+	// Clean HTML tags and limit length
+	desc = strings.ReplaceAll(desc, "<br>", " ")
+	desc = strings.ReplaceAll(desc, "<p>", " ")
+	desc = strings.ReplaceAll(desc, "</p>", " ")
+	desc = strings.ReplaceAll(desc, "<div>", " ")
+	desc = strings.ReplaceAll(desc, "</div>", " ")
+	desc = strings.ReplaceAll(desc, "<span>", " ")
+	desc = strings.ReplaceAll(desc, "</span>", " ")
+	desc = strings.TrimSpace(desc)
+	if len(desc) > 500 {
+		desc = desc[:500] + "..."
+	}
+	return desc
 }
 
 // sortBySimilarity sorts results by similarity in descending order

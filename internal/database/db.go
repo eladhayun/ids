@@ -70,8 +70,8 @@ func IsReadOnly(db *sqlx.DB) (bool, error) {
 	return readOnly == 1, nil
 }
 
-// ExecuteReadOnlyQuery executes a query within a read-only transaction for extra safety
-func ExecuteReadOnlyQuery(ctx context.Context, db *sqlx.DB, dest interface{}, query string, args ...interface{}) error {
+// executeReadOnlyTransaction is a helper that executes a function within a read-only transaction
+func executeReadOnlyTransaction(ctx context.Context, db *sqlx.DB, fn func(*sqlx.Tx) error) error {
 	// Note: Session isolation level setting removed due to permission issues
 	// The query will still be executed safely as a read-only operation
 
@@ -87,39 +87,30 @@ func ExecuteReadOnlyQuery(ctx context.Context, db *sqlx.DB, dest interface{}, qu
 		}
 	}() // Always rollback, we never commit read-only transactions
 
-	// Execute the query
-	err = tx.SelectContext(ctx, dest, query, args...)
-	if err != nil {
-		return fmt.Errorf("failed to execute read-only query: %w", err)
-	}
+	// Execute the provided function
+	return fn(tx)
+}
 
-	return nil
+// ExecuteReadOnlyQuery executes a query within a read-only transaction for extra safety
+func ExecuteReadOnlyQuery(ctx context.Context, db *sqlx.DB, dest interface{}, query string, args ...interface{}) error {
+	return executeReadOnlyTransaction(ctx, db, func(tx *sqlx.Tx) error {
+		err := tx.SelectContext(ctx, dest, query, args...)
+		if err != nil {
+			return fmt.Errorf("failed to execute read-only query: %w", err)
+		}
+		return nil
+	})
 }
 
 // ExecuteReadOnlyQuerySingle executes a single-row query within a read-only transaction
 func ExecuteReadOnlyQuerySingle(ctx context.Context, db *sqlx.DB, dest interface{}, query string, args ...interface{}) error {
-	// Note: Session isolation level setting removed due to permission issues
-	// The query will still be executed safely as a read-only operation
-
-	// Start a read-only transaction
-	tx, err := db.BeginTxx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin read-only transaction: %w", err)
-	}
-	defer func() {
-		if err := tx.Rollback(); err != nil {
-			// Log but don't fail - rollback errors in read-only transactions are usually harmless
-			fmt.Printf("Warning: Error rolling back read-only transaction: %v\n", err)
+	return executeReadOnlyTransaction(ctx, db, func(tx *sqlx.Tx) error {
+		err := tx.GetContext(ctx, dest, query, args...)
+		if err != nil {
+			return fmt.Errorf("failed to execute read-only query: %w", err)
 		}
-	}() // Always rollback, we never commit read-only transactions
-
-	// Execute the query
-	err = tx.GetContext(ctx, dest, query, args...)
-	if err != nil {
-		return fmt.Errorf("failed to execute read-only query: %w", err)
-	}
-
-	return nil
+		return nil
+	})
 }
 
 // ExecuteReadOnlyPing executes a ping within a read-only transaction

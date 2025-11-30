@@ -244,18 +244,7 @@ func (es *EmbeddingService) buildProductText(product models.Product) string {
 
 	// Add description
 	if product.Description != nil && *product.Description != "" {
-		// Clean HTML tags and limit length
-		desc := strings.ReplaceAll(*product.Description, "<br>", " ")
-		desc = strings.ReplaceAll(desc, "<p>", " ")
-		desc = strings.ReplaceAll(desc, "</p>", " ")
-		desc = strings.ReplaceAll(desc, "<div>", " ")
-		desc = strings.ReplaceAll(desc, "</div>", " ")
-		desc = strings.ReplaceAll(desc, "<span>", " ")
-		desc = strings.ReplaceAll(desc, "</span>", " ")
-		desc = strings.TrimSpace(desc)
-		if len(desc) > 500 {
-			desc = desc[:500] + "..."
-		}
+		desc := cleanHTMLDescription(*product.Description)
 		parts = append(parts, desc)
 	}
 
@@ -347,29 +336,11 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 
 	// Get all product embeddings from PostgreSQL (no MariaDB joins)
 	// Product metadata is stored denormalized in the product_embeddings table
-	embeddingsQuery := `
-		SELECT
-			product_id,
-			embedding,
-			COALESCE(post_title, '') as post_title,
-			post_name,
-			description,
-			short_description,
-			sku,
-			min_price,
-			max_price,
-			stock_status,
-			stock_quantity,
-			tags
-		FROM product_embeddings
-		WHERE post_title IS NOT NULL AND post_title != ''
-	`
-
 	fmt.Printf("[PRODUCT_EMBEDDINGS] Fetching product embeddings from PostgreSQL (no MariaDB access)...\n")
 	if es.writeClient == nil {
 		return nil, false, fmt.Errorf("PostgreSQL write client not available for product embeddings search")
 	}
-	rows, err := es.writeClient.GetDB().QueryContext(ctx, embeddingsQuery)
+	rows, err := es.writeClient.GetDB().QueryContext(ctx, queryProductEmbeddings)
 	if err != nil {
 		fmt.Printf("[PRODUCT_EMBEDDINGS] ❌ ERROR: Failed to fetch product embeddings from PostgreSQL: %v\n", err)
 		return nil, false, fmt.Errorf("failed to fetch product embeddings: %v", err)

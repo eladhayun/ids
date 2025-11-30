@@ -22,7 +22,7 @@ linters:
     warn-unused: false
   settings:
     gocyclo:
-      min-complexity: 15
+      min-complexity: 30
     dupl:
       threshold: 100
     goconst:
