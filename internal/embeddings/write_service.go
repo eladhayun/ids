@@ -480,7 +480,7 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 		// Use sql.NullString for nullable fields
 		var postName, description, shortDescription, sku, minPrice, maxPrice, stockStatus, tags sql.NullString
 		var stockQuantity sql.NullFloat64
-		
+
 		err := rows.Scan(
 			&productID,
 			&embeddingJSON,
@@ -495,11 +495,11 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 			&stockQuantity,
 			&tags,
 		)
-		
+
 		if err != nil {
 			continue // Skip invalid rows
 		}
-		
+
 		// Convert nullable fields to pointers
 		if postName.Valid {
 			product.PostName = &postName.String
