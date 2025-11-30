@@ -21,6 +21,7 @@ type Config struct {
 	WaitForTunnel          bool // Whether to wait for SSH tunnel to be ready
 	OpenAITimeout          int  // OpenAI API timeout in seconds
 	EmbeddingScheduleHours int  // Embedding generation schedule interval in hours
+	EnableEmailContext     bool // Whether to include email history in chat responses
 }
 
 // Load initializes and returns application configuration
@@ -40,6 +41,7 @@ func Load() *Config {
 		WaitForTunnel:          getEnvBool("WAIT_FOR_TUNNEL", true),                 // Default true for production safety
 		OpenAITimeout:          getEnvInt("OPENAI_TIMEOUT", 60),                     // Default 60 seconds
 		EmbeddingScheduleHours: getEnvInt("EMBEDDING_SCHEDULE_INTERVAL_HOURS", 168), // Default 168 hours (1 week)
+		EnableEmailContext:     getEnvBool("ENABLE_EMAIL_CONTEXT", true),            // Default true to use email history
 	}
 
 	return config

@@ -132,16 +132,18 @@ func ChatEnhancedHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, em
 
 		fmt.Printf("[CHAT_ENHANCED] %d in-stock products\n", len(inStockProducts))
 
-		// Search for similar email conversations
+		// Search for similar email conversations (if enabled)
 		var similarEmails []models.EmailSearchResult
-		if emailService != nil {
-			fmt.Printf("[CHAT_ENHANCED] Searching for similar email conversations...\n")
+		if cfg.EnableEmailContext && emailService != nil {
+			fmt.Printf("[CHAT_ENHANCED] Email context enabled - searching for similar email conversations...\n")
 			similarEmails, err = emailService.SearchSimilarEmails(userQuery, 5, true) // Search threads
 			if err != nil {
 				fmt.Printf("[CHAT_ENHANCED] Warning: Email search failed: %v\n", err)
 			} else {
 				fmt.Printf("[CHAT_ENHANCED] Found %d similar email threads\n", len(similarEmails))
 			}
+		} else if !cfg.EnableEmailContext {
+			fmt.Printf("[CHAT_ENHANCED] Email context disabled - skipping email search\n")
 		}
 
 		// Create product metadata for frontend
@@ -216,9 +218,18 @@ func buildEnhancedOpenAIMessages(
 
 	systemPrompt := `You are an expert sales rep for Israel Defense Store (israeldefensestore.com) specializing in tactical gear.
 
-ROLE: Help customers find tactical gear products. You have access to:
+ROLE: Help customers find tactical gear products.`
+
+	if len(emailThreads) > 0 {
+		systemPrompt += ` You have access to:
 1. A list of relevant products found using advanced vector search
-2. Similar past customer conversations that might help you answer better
+2. Similar past customer conversations that might help you answer better`
+	} else {
+		systemPrompt += ` You have access to:
+1. A list of relevant products found using advanced vector search`
+	}
+
+	systemPrompt += `
 
 COMPATIBILITY CHECK (CRITICAL):
 - If the user asks for a specific gun model (e.g., "Hellcat", "M&P Shield", "P365", "Glock 19 Gen 5"), you MUST verify that the product explicitly lists this model in its tags or description.
@@ -243,12 +254,18 @@ RULES:
 
 APPAREL & SIZING:
 - For clothing, provide sizing from product tags (XS, S, M, L, XL, XXL)
-- Mention special features (water-resistant, insulated, etc.)
+- Mention special features (water-resistant, insulated, etc.)`
+
+	if len(emailThreads) > 0 {
+		systemPrompt += `
 
 PAST CONVERSATIONS:
 - Use insights from similar past conversations to enhance your response
 - Learn from how issues were resolved previously
-- Don't mention that you're using past conversations - just naturally incorporate the knowledge
+- Don't mention that you're using past conversations - just naturally incorporate the knowledge`
+	}
+
+	systemPrompt += `
 
 RESPONSE FORMAT:
 - For confirmed compatibility: **[Product Name]** - [Price] - [Stock] - Compatible with [Model]
