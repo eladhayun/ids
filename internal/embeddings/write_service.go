@@ -272,28 +272,7 @@ func (wes *WriteEmbeddingService) buildProductText(product models.Product) strin
 	// Fetch variations for this product to get more specific keywords
 	// This is an N+1 query but it's only during embedding generation which is a background process
 	// TODO: Temporarily disabled - needs to use readDB for querying remote MySQL
-	var variations []string
-	if false && len(variations) > 0 {
-		// Extract unique keywords from variations
-		uniqueKeywords := make(map[string]struct{})
-		for _, v := range variations {
-			// Variation titles often look like "Product Name - Variation"
-			// We want the variation part
-			parts := strings.Split(v, " - ")
-			if len(parts) > 1 {
-				uniqueKeywords[parts[len(parts)-1]] = struct{}{}
-			}
-		}
-
-		var variationKeywords []string
-		for k := range uniqueKeywords {
-			variationKeywords = append(variationKeywords, k)
-		}
-
-		if len(variationKeywords) > 0 {
-			parts = append(parts, "Variations: "+strings.Join(variationKeywords, ", "))
-		}
-	}
+	// Code removed to fix linter warning about nil slice range
 
 	// Force boost for P-IX by adding explicit keywords from the query that failed
 	// The user query was: "AR Platform Conversion Kit For Glock - Recover Tactical P-IX+"
