@@ -199,41 +199,6 @@ paths:
     post:
       consumes:
       - application/json
-      description: Send a conversation to the AI chatbot and get a response with vector-based
-        product recommendations
-      parameters:
-      - description: Chat request
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/models.ChatRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.ChatResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/models.ChatResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/models.ChatResponse'
-        "503":
-          description: Service Unavailable
-          schema:
-            $ref: '#/definitions/models.ChatResponse'
-      summary: Chat with AI using vector search
-      tags:
-      - chat
-  /api/chat/enhanced:
-    post:
-      consumes:
-      - application/json
       description: Send a conversation to the AI chatbot and get a response with product
         recommendations enhanced by similar past conversations
       parameters:

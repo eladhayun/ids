@@ -127,58 +127,6 @@
         },
         "/api/chat": {
             "post": {
-                "description": "Send a conversation to the AI chatbot and get a response with vector-based product recommendations",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "chat"
-                ],
-                "summary": "Chat with AI using vector search",
-                "parameters": [
-                    {
-                        "description": "Chat request",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/models.ChatRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/models.ChatResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/models.ChatResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/models.ChatResponse"
-                        }
-                    },
-                    "503": {
-                        "description": "Service Unavailable",
-                        "schema": {
-                            "$ref": "#/definitions/models.ChatResponse"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/chat/enhanced": {
-            "post": {
                 "description": "Send a conversation to the AI chatbot and get a response with product recommendations enhanced by similar past conversations",
                 "consumes": [
                     "application/json"

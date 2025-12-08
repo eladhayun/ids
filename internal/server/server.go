@@ -139,16 +139,9 @@ func (s *Server) setupRoutes() {
 	// API endpoints under /api prefix
 	api.GET("/", handlers.RootHandler(s.config.Version))
 
-	// Use vector-based chat if embedding service is available, otherwise fall back to regular chat
-	if s.embeddingService != nil {
-		api.POST("/chat", handlers.ChatVectorHandler(s.db, s.config, s.cache, s.embeddingService))
-	} else {
-		api.POST("/chat", handlers.ChatHandler(s.db, s.config, s.cache))
-	}
-
-	// Enhanced chat with email context (if write client available for email embeddings)
+	// Chat endpoint with product and email context (requires embedding service and write client)
 	if s.writeClient != nil && s.embeddingService != nil {
-		api.POST("/chat/enhanced", handlers.ChatEnhancedHandler(s.db, s.config, s.cache, s.embeddingService, s.writeClient))
+		api.POST("/chat", handlers.ChatHandler(s.db, s.config, s.cache, s.embeddingService, s.writeClient))
 	}
 
 	// Admin endpoints

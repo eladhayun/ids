@@ -105,19 +105,17 @@ Then generate embeddings separately using the init-embeddings-write tool (to be 
 
 ### API Endpoint
 
-The system provides two chat endpoints:
+The system provides a chat endpoint:
 
-1. **Standard Chat** (existing): `/api/chat`
-   - Searches only products
-
-2. **Enhanced Chat** (new): `/api/chat/enhanced`
-   - Searches products AND similar email conversations
+**Chat**: `/api/chat`
+   - Searches products using vector embeddings
+   - Searches similar email conversations when available
    - Uses past conversations to provide better context
 
 ### Example Request
 
 ```bash
-curl -X POST http://localhost:8080/api/chat/enhanced \
+curl -X POST http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "conversation": [
@@ -303,7 +301,7 @@ OpenAI API rate limits apply:
 ## Next Steps
 
 1. **Import your first batch**: Start with a small set (100-500 emails)
-2. **Test enhanced chat**: Try the `/api/chat/enhanced` endpoint
+2. **Test chat**: Try the `/api/chat` endpoint
 3. **Evaluate results**: Check if responses improve with email context
 4. **Scale up**: Import more historical emails
 5. **Monitor usage**: Track which past conversations are most helpful

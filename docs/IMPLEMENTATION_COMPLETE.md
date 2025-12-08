@@ -37,10 +37,10 @@ make build-import-emails
 
 ### 3. Use Enhanced Chat
 
-The new `/api/chat/enhanced` endpoint combines product search with email context:
+The `/api/chat` endpoint combines product search with email context:
 
 ```bash
-curl -X POST http://localhost:8080/api/chat/enhanced \
+curl -X POST http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "conversation": [
@@ -250,7 +250,7 @@ SELECT COUNT(*) FROM email_embeddings;
 ### 4. Test Enhanced Chat
 
 ```bash
-curl -X POST http://localhost:8080/api/chat/enhanced \
+curl -X POST http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "conversation": [
@@ -271,15 +271,14 @@ curl -X POST http://localhost:8080/api/chat/enhanced \
    ./bin/import-emails -eml /path/to/small/batch
    ```
 
-3. **Test the enhanced endpoint**:
+3. **Test the chat endpoint**:
    ```bash
-   curl -X POST http://localhost:8080/api/chat/enhanced -H "Content-Type: application/json" -d '...'
+   curl -X POST http://localhost:8080/api/chat -H "Content-Type: application/json" -d '...'
    ```
 
-4. **Compare results**:
-   - Test same query on `/api/chat` (standard)
-   - Test same query on `/api/chat/enhanced` (with email context)
-   - Observe improved responses
+4. **Observe enhanced responses**:
+   - The endpoint automatically uses product search and email context when available
+   - Responses are enhanced with insights from similar past conversations
 
 5. **Scale up**:
    - Import more historical emails
@@ -384,7 +383,7 @@ make build-import-emails
 ./bin/import-emails -mbox /path/to/mailbox.mbox
 
 # Test enhanced chat
-curl -X POST http://localhost:8080/api/chat/enhanced \
+curl -X POST http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
   -d '{"conversation":[{"role":"user","message":"your question"}]}'
 

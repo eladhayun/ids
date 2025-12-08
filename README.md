@@ -28,8 +28,7 @@ The API includes comprehensive Swagger/OpenAPI documentation that can be accesse
 - **GET** `/api/` - Root API endpoint with service information
 - **GET** `/api/healthz` - Basic health check
 - **GET** `/api/healthz/db` - Database health check
-- **POST** `/api/chat` - Chat with AI assistant (uses vector search when embeddings are available)
-- **POST** `/api/chat/enhanced` - Enhanced chat with product search + email conversation context
+- **POST** `/api/chat` - Chat with AI assistant using enhanced vector search (products + email conversation context)
 
 ## Quick Start
 
@@ -179,10 +178,10 @@ make build-import-emails
 
 ### Using Enhanced Chat
 
-The enhanced chat endpoint combines product search with email context:
+The chat endpoint combines product search with email context:
 
 ```bash
-curl -X POST http://localhost:8080/api/chat/enhanced \
+curl -X POST http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "conversation": [
@@ -248,11 +247,11 @@ The chatbot API endpoint provides an AI-powered assistant that uses vector embed
 
 **POST** `/api/chat`
 
-### Chat Modes
+### Chat Features
 
-The server automatically selects the appropriate chat handler:
-- **Vector Search Mode** (default): Uses embeddings for semantic product search when the `product_embeddings` table exists and contains data
-- **Basic Mode** (fallback): Provides general tactical gear information without specific product recommendations
+The chat endpoint uses enhanced vector search with:
+- **Product Search**: Uses embeddings for semantic product search when the `product_embeddings` table exists and contains data
+- **Email Context**: Enhances responses with insights from similar past customer conversations when email embeddings are available
 
 ### Request Format
 

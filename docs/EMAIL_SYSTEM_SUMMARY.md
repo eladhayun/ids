@@ -51,7 +51,7 @@ A complete system has been implemented to import email conversations (EML and MB
   ```
 
 ### 5. Enhanced Chat Handler (`internal/handlers/chat_enhanced.go`)
-- New endpoint: `/api/chat/enhanced`
+- Chat endpoint: `/api/chat`
 - Searches BOTH products AND similar email conversations
 - Combines insights from:
   - Vector-based product search
@@ -232,7 +232,7 @@ FROM email_embeddings;
 
 ### Step 3: Use Enhanced Chat
 ```bash
-curl -X POST http://localhost:8080/api/chat/enhanced \
+curl -X POST http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "conversation": [
@@ -248,7 +248,7 @@ The email system integrates seamlessly with:
 - **Existing embeddings system**: Uses same OpenAI integration
 - **Database layer**: Uses WriteClient for write operations
 - **Config system**: Uses existing config.Config
-- **Chat handlers**: New endpoint alongside existing `/api/chat`
+- **Chat handler**: Enhanced `/api/chat` endpoint
 
 ### New Dependencies
 No new external dependencies required! Uses existing:

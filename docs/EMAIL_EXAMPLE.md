@@ -150,7 +150,7 @@ Output:
 Now test the chat endpoint with a similar query:
 
 ```bash
-curl -X POST http://localhost:8080/api/chat/enhanced \
+curl -X POST http://localhost:8080/api/chat \
   -H "Content-Type: application/json" \
   -d '{
     "conversation": [
