@@ -2,7 +2,9 @@ package embeddings
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -98,12 +100,92 @@ func NewWriteEmbeddingService(cfg *config.Config, readDB *sql.DB, writeClient *d
 	}, nil
 }
 
-// GenerateProductEmbeddings generates embeddings for all products
+// calculateProductChecksum calculates a SHA256 checksum for a product based on its content
+func (wes *WriteEmbeddingService) calculateProductChecksum(product models.Product) string {
+	// Build a string representation of all product fields that affect embeddings
+	var parts []string
+	parts = append(parts, fmt.Sprintf("id:%d", product.ID))
+	parts = append(parts, fmt.Sprintf("title:%s", product.PostTitle))
+	if product.PostName != nil {
+		parts = append(parts, fmt.Sprintf("name:%s", *product.PostName))
+	}
+	if product.Description != nil {
+		parts = append(parts, fmt.Sprintf("desc:%s", *product.Description))
+	}
+	if product.ShortDescription != nil {
+		parts = append(parts, fmt.Sprintf("short:%s", *product.ShortDescription))
+	}
+	if product.SKU != nil {
+		parts = append(parts, fmt.Sprintf("sku:%s", *product.SKU))
+	}
+	if product.MinPrice != nil {
+		parts = append(parts, fmt.Sprintf("min_price:%s", *product.MinPrice))
+	}
+	if product.MaxPrice != nil {
+		parts = append(parts, fmt.Sprintf("max_price:%s", *product.MaxPrice))
+	}
+	if product.StockStatus != nil {
+		parts = append(parts, fmt.Sprintf("stock_status:%s", *product.StockStatus))
+	}
+	if product.StockQuantity != nil {
+		parts = append(parts, fmt.Sprintf("stock_qty:%f", *product.StockQuantity))
+	}
+	if product.Tags != nil {
+		parts = append(parts, fmt.Sprintf("tags:%s", *product.Tags))
+	}
+
+	content := strings.Join(parts, "|")
+	hash := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(hash[:])
+}
+
+// getStoredChecksums retrieves all stored product checksums from the database
+func (wes *WriteEmbeddingService) getStoredChecksums() (map[int]string, error) {
+	checksums := make(map[int]string)
+	query := `SELECT product_id, checksum FROM product_checksums`
+
+	rows, err := wes.writeDB.GetDB().Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch checksums: %v", err)
+	}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			fmt.Printf("Warning: Error closing checksum rows: %v\n", err)
+		}
+	}()
+
+	for rows.Next() {
+		var productID int
+		var checksum string
+		if err := rows.Scan(&productID, &checksum); err != nil {
+			continue
+		}
+		checksums[productID] = checksum
+	}
+
+	return checksums, nil
+}
+
+// updateProductChecksum stores or updates the checksum for a product
+func (wes *WriteEmbeddingService) updateProductChecksum(productID int, checksum string) error {
+	query := `
+		INSERT INTO product_checksums (product_id, checksum, last_checked)
+		VALUES ($1, $2, CURRENT_TIMESTAMP)
+		ON CONFLICT (product_id) DO UPDATE SET
+			checksum = EXCLUDED.checksum,
+			last_checked = CURRENT_TIMESTAMP
+	`
+
+	_, err := wes.writeDB.ExecuteWriteQuery(query, productID, checksum)
+	return err
+}
+
+// GenerateProductEmbeddings generates embeddings only for products that have changed
 func (wes *WriteEmbeddingService) GenerateProductEmbeddings() error {
-	fmt.Printf("[WRITE_EMBEDDING_GEN] ===== STARTING EMBEDDING GENERATION =====\n")
+	fmt.Printf("[WRITE_EMBEDDING_GEN] ===== STARTING INCREMENTAL EMBEDDING GENERATION =====\n")
 
 	fmt.Printf("[WRITE_EMBEDDING_GEN] Fetching products from database...\n")
-	var products []models.Product
+	var allProducts []models.Product
 
 	// Use readDB (MySQL) for reading products from remote database
 	rows, err := wes.readDB.Query(queryProducts)
@@ -136,29 +218,64 @@ func (wes *WriteEmbeddingService) GenerateProductEmbeddings() error {
 			fmt.Printf("[WRITE_EMBEDDING_GEN] ERROR: Failed to scan product: %v\n", err)
 			continue
 		}
-		products = append(products, product)
+		allProducts = append(allProducts, product)
 	}
 
-	fmt.Printf("[WRITE_EMBEDDING_GEN] Found %d products to process\n", len(products))
+	fmt.Printf("[WRITE_EMBEDDING_GEN] Found %d total products in database\n", len(allProducts))
 
-	// Process products in batches to avoid API limits
+	// Get stored checksums
+	fmt.Printf("[WRITE_EMBEDDING_GEN] Fetching stored product checksums...\n")
+	storedChecksums, err := wes.getStoredChecksums()
+	if err != nil {
+		fmt.Printf("[WRITE_EMBEDDING_GEN] WARNING: Failed to fetch checksums (will process all products): %v\n", err)
+		storedChecksums = make(map[int]string)
+	}
+
+	// Filter products that have changed or are new
+	var changedProducts []models.Product
+	for _, product := range allProducts {
+		currentChecksum := wes.calculateProductChecksum(product)
+		storedChecksum, exists := storedChecksums[product.ID]
+
+		if !exists || storedChecksum != currentChecksum {
+			changedProducts = append(changedProducts, product)
+		}
+	}
+
+	fmt.Printf("[WRITE_EMBEDDING_GEN] Found %d changed/new products out of %d total\n", len(changedProducts), len(allProducts))
+
+	if len(changedProducts) == 0 {
+		fmt.Printf("[WRITE_EMBEDDING_GEN] No products changed. Skipping embedding generation.\n")
+		fmt.Printf("[WRITE_EMBEDDING_GEN] ===== EMBEDDING GENERATION COMPLETE (NO CHANGES) =====\n")
+		return nil
+	}
+
+	// Process changed products in batches to avoid API limits
 	batchSize := 100
-	totalBatches := (len(products) + batchSize - 1) / batchSize
-	fmt.Printf("[WRITE_EMBEDDING_GEN] Processing %d products in %d batches of %d\n", len(products), totalBatches, batchSize)
+	totalBatches := (len(changedProducts) + batchSize - 1) / batchSize
+	fmt.Printf("[WRITE_EMBEDDING_GEN] Processing %d changed products in %d batches of %d\n", len(changedProducts), totalBatches, batchSize)
 
-	for i := 0; i < len(products); i += batchSize {
+	for i := 0; i < len(changedProducts); i += batchSize {
 		end := i + batchSize
-		if end > len(products) {
-			end = len(products)
+		if end > len(changedProducts) {
+			end = len(changedProducts)
 		}
 
 		batchNum := (i / batchSize) + 1
 		fmt.Printf("[WRITE_EMBEDDING_GEN] Processing batch %d/%d (products %d-%d)...\n", batchNum, totalBatches, i+1, end)
 
-		batch := products[i:end]
+		batch := changedProducts[i:end]
 		if err := wes.processBatch(batch); err != nil {
 			fmt.Printf("[WRITE_EMBEDDING_GEN] ERROR: Failed to process batch %d-%d: %v\n", i, end, err)
 			return fmt.Errorf("failed to process batch %d-%d: %v", i, end, err)
+		}
+
+		// Update checksums for successfully processed products
+		for _, product := range batch {
+			checksum := wes.calculateProductChecksum(product)
+			if err := wes.updateProductChecksum(product.ID, checksum); err != nil {
+				fmt.Printf("[WRITE_EMBEDDING_GEN] WARNING: Failed to update checksum for product %d: %v\n", product.ID, err)
+			}
 		}
 
 		fmt.Printf("[WRITE_EMBEDDING_GEN] Completed batch %d/%d\n", batchNum, totalBatches)
@@ -378,10 +495,26 @@ func (wes *WriteEmbeddingService) CreateEmbeddingsTable() error {
 		return err
 	}
 
+	// Create product checksums table to track changes
+	checksumQuery := `
+		CREATE TABLE IF NOT EXISTS product_checksums (
+			product_id INT PRIMARY KEY,
+			checksum TEXT NOT NULL,
+			last_checked TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(product_id)
+		)
+	`
+
+	if _, err := wes.writeDB.ExecuteWriteQuery(checksumQuery); err != nil {
+		return err
+	}
+
 	// Create indexes separately (PostgreSQL syntax)
 	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS idx_product_embeddings_product_id ON product_embeddings(product_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_product_embeddings_post_title ON product_embeddings(post_title) WHERE post_title IS NOT NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_product_checksums_product_id ON product_checksums(product_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_product_checksums_last_checked ON product_checksums(last_checked)`,
 	}
 	for _, indexQuery := range indexes {
 		if _, err := wes.writeDB.ExecuteWriteQuery(indexQuery); err != nil {
