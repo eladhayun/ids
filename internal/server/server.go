@@ -3,6 +3,7 @@ package server
 import (
 	"time"
 
+	"ids/internal/analytics"
 	"ids/internal/cache"
 	"ids/internal/config"
 	"ids/internal/database"
@@ -25,6 +26,7 @@ type Server struct {
 	logger           zerolog.Logger
 	cache            *cache.Cache
 	embeddingService *embeddings.EmbeddingService
+	analyticsService *analytics.Service
 }
 
 // New creates a new server instance
@@ -55,6 +57,18 @@ func New(cfg *config.Config, db *sqlx.DB, logger zerolog.Logger) *Server {
 		}
 	}
 
+	// Initialize analytics service
+	var analyticsService *analytics.Service
+	if writeClient != nil {
+		var err error
+		analyticsService, err = analytics.NewService(writeClient)
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to initialize analytics service")
+		} else {
+			logger.Info().Msg("Analytics service initialized successfully")
+		}
+	}
+
 	return &Server{
 		config:           cfg,
 		db:               db,
@@ -62,6 +76,7 @@ func New(cfg *config.Config, db *sqlx.DB, logger zerolog.Logger) *Server {
 		logger:           logger,
 		cache:            cache.New(),
 		embeddingService: embeddingService,
+		analyticsService: analyticsService,
 	}
 }
 
@@ -141,11 +156,17 @@ func (s *Server) setupRoutes() {
 
 	// Chat endpoint with product and email context (requires embedding service and write client)
 	if s.writeClient != nil && s.embeddingService != nil {
-		api.POST("/chat", handlers.ChatHandler(s.db, s.config, s.cache, s.embeddingService, s.writeClient))
+		api.POST("/chat", handlers.ChatHandler(s.db, s.config, s.cache, s.embeddingService, s.writeClient, s.analyticsService))
 	}
 
 	// Support escalation endpoint
-	api.POST("/chat/request-support", handlers.SupportRequestHandler(s.config))
+	api.POST("/chat/request-support", handlers.SupportRequestHandler(s.config, s.analyticsService))
+
+	// Analytics endpoints
+	if s.analyticsService != nil {
+		api.GET("/analytics", handlers.AnalyticsHandler(s.analyticsService))
+		api.GET("/analytics/daily-report", handlers.DailyReportHandler(s.analyticsService))
+	}
 
 	// Admin endpoints
 	admin := api.Group("/admin")

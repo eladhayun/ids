@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"ids/internal/analytics"
 	"ids/internal/cache"
 	"ids/internal/config"
 	"ids/internal/database"
@@ -34,7 +35,9 @@ const stockStatusInStock = "instock"
 // @Failure 500 {object} models.ChatResponse
 // @Failure 503 {object} models.ChatResponse
 // @Router /api/chat [post]
-func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embeddingService *embeddings.EmbeddingService, writeClient *database.WriteClient) echo.HandlerFunc {
+//
+//nolint:gocyclo // Handler has necessary complexity for validation, search, and response building
+func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embeddingService *embeddings.EmbeddingService, writeClient *database.WriteClient, analyticsService *analytics.Service) echo.HandlerFunc {
 	// Create email embedding service
 	emailService, err := emails.NewEmailEmbeddingService(cfg, writeClient)
 	if err != nil {
@@ -122,6 +125,11 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embeddingS
 
 		fmt.Printf("[CHAT] ✅ DATASOURCE: PRODUCT EMBEDDINGS search completed - Found %d products (took %v, fallback=%t)\n", len(similarProducts), searchDuration, fallbackToSimilarity)
 
+		// Track query embedding (billable - 1 embedding per product search)
+		if analyticsService != nil {
+			go func() { _ = analyticsService.TrackQueryEmbedding("product_search", "text-embedding-3-small") }()
+		}
+
 		// Filter to in-stock products
 		var inStockProducts []embeddings.ProductEmbedding
 		for _, product := range similarProducts {
@@ -147,6 +155,10 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embeddingS
 				fmt.Printf("[CHAT] ❌ ERROR: Email embeddings search failed: %v (took %v)\n", err, emailSearchDuration)
 			} else {
 				fmt.Printf("[CHAT] ✅ DATASOURCE: EMAIL EMBEDDINGS search completed - Found %d similar email threads (took %v)\n", len(similarEmails), emailSearchDuration)
+				// Track query embedding (billable - 1 embedding per email search)
+				if analyticsService != nil {
+					go func() { _ = analyticsService.TrackQueryEmbedding("email_search", "text-embedding-3-small") }()
+				}
 			}
 		} else if !cfg.EnableEmailContext {
 			fmt.Printf("[CHAT] ⚠️  DATASOURCE: EMAIL EMBEDDINGS search skipped - Email context disabled in config\n")
@@ -204,6 +216,19 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embeddingS
 		response := resp.Choices[0].Message.Content
 		if len(inStockProducts) > 0 {
 			response += fmt.Sprintf("\n\n**Found %d relevant products**", len(inStockProducts))
+		}
+
+		// Track analytics
+		if analyticsService != nil {
+			totalTokens := 0
+			if resp.Usage.TotalTokens > 0 {
+				totalTokens = resp.Usage.TotalTokens
+			}
+			go func() {
+				if err := analyticsService.TrackConversation(len(inStockProducts), len(similarEmails), totalTokens, string(openai.GPT4oMini)); err != nil {
+					fmt.Printf("[CHAT] Warning: Failed to track analytics: %v\n", err)
+				}
+			}()
 		}
 
 		// Detect if customer is dissatisfied and needs support escalation

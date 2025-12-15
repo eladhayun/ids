@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"ids/internal/analytics"
 	"ids/internal/config"
 	"ids/internal/email"
 	"ids/internal/models"
@@ -34,7 +35,7 @@ const (
 // @Failure 400 {object} models.SupportResponse
 // @Failure 500 {object} models.SupportResponse
 // @Router /api/chat/request-support [post]
-func SupportRequestHandler(cfg *config.Config) echo.HandlerFunc {
+func SupportRequestHandler(cfg *config.Config, analyticsService *analytics.Service) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		fmt.Printf("[SUPPORT] ===== NEW SUPPORT REQUEST =====\n")
 
@@ -76,7 +77,7 @@ func SupportRequestHandler(cfg *config.Config) echo.HandlerFunc {
 		}
 
 		// Summarize conversation using OpenAI
-		summary, err := summarizeConversation(cfg.OpenAIKey, req.Conversation)
+		summary, err := summarizeConversation(cfg.OpenAIKey, req.Conversation, analyticsService)
 		if err != nil {
 			fmt.Printf("[SUPPORT] ERROR: Failed to summarize conversation: %v\n", err)
 			// Continue with basic summary if AI summarization fails
@@ -97,6 +98,19 @@ func SupportRequestHandler(cfg *config.Config) echo.HandlerFunc {
 		}
 
 		fmt.Printf("[SUPPORT] ✅ Support escalation email sent successfully to %s\n", req.CustomerEmail)
+
+		// Track analytics
+		if analyticsService != nil {
+			go func() {
+				if err := analyticsService.TrackSupportEscalation(req.CustomerEmail); err != nil {
+					fmt.Printf("[SUPPORT] Warning: Failed to track support escalation: %v\n", err)
+				}
+				if err := analyticsService.TrackSendGridEmail("support_escalation", req.CustomerEmail); err != nil {
+					fmt.Printf("[SUPPORT] Warning: Failed to track SendGrid email: %v\n", err)
+				}
+			}()
+		}
+
 		fmt.Printf("[SUPPORT] ===== REQUEST COMPLETE =====\n\n")
 
 		return c.JSON(http.StatusOK, models.SupportResponse{
@@ -107,7 +121,7 @@ func SupportRequestHandler(cfg *config.Config) echo.HandlerFunc {
 }
 
 // summarizeConversation uses OpenAI to generate a summary of the conversation
-func summarizeConversation(openAIKey string, conversation []models.ConversationMessage) (string, error) {
+func summarizeConversation(openAIKey string, conversation []models.ConversationMessage, analyticsService *analytics.Service) (string, error) {
 	client := openai.NewClient(openAIKey)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -154,6 +168,19 @@ func summarizeConversation(openAIKey string, conversation []models.ConversationM
 
 	if len(resp.Choices) == 0 {
 		return "", fmt.Errorf("no response from OpenAI")
+	}
+
+	// Track support summarization (billable)
+	if analyticsService != nil {
+		go func() {
+			tokens := 0
+			if resp.Usage.TotalTokens > 0 {
+				tokens = resp.Usage.TotalTokens
+			}
+			if err := analyticsService.TrackSupportSummarization(tokens, string(openai.GPT4oMini)); err != nil {
+				fmt.Printf("[SUPPORT] Warning: Failed to track summarization: %v\n", err)
+			}
+		}()
 	}
 
 	return resp.Choices[0].Message.Content, nil

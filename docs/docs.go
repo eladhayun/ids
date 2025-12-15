@@ -136,6 +136,73 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/analytics": {
+            "get": {
+                "description": "Get analytics summary for a specified time period (today, yesterday, last_7_days, last_30_days)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "analytics"
+                ],
+                "summary": "Get analytics summary",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "default": "yesterday",
+                        "description": "Time period (today, yesterday, last_7_days, last_30_days)",
+                        "name": "period",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.AnalyticsResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.AnalyticsResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/analytics/daily-report": {
+            "get": {
+                "description": "Get analytics report for the previous day, suitable for daily Slack notifications",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "analytics"
+                ],
+                "summary": "Get daily analytics report",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.AnalyticsResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.AnalyticsResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/chat": {
             "post": {
                 "description": "Send a conversation to the AI chatbot and get a response with product recommendations enhanced by similar past conversations",
@@ -337,6 +404,116 @@ const docTemplate = `{
                 },
                 "success": {
                     "type": "boolean"
+                }
+            }
+        },
+        "models.AnalyticsResponse": {
+            "description": "Analytics response payload",
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": ""
+                },
+                "success": {
+                    "type": "boolean",
+                    "example": true
+                },
+                "summary": {
+                    "$ref": "#/definitions/models.AnalyticsSummary"
+                }
+            }
+        },
+        "models.AnalyticsSummary": {
+            "type": "object",
+            "properties": {
+                "email_embeddings_count": {
+                    "description": "Emails processed for embeddings",
+                    "type": "integer"
+                },
+                "email_embeddings_ran": {
+                    "description": "Whether email embeddings ran in period",
+                    "type": "boolean"
+                },
+                "email_threads": {
+                    "description": "Total email threads",
+                    "type": "integer"
+                },
+                "end_date": {
+                    "description": "Period end",
+                    "type": "string"
+                },
+                "openai_calls": {
+                    "description": "Total OpenAI API calls",
+                    "type": "integer"
+                },
+                "openai_tokens_used": {
+                    "description": "Total tokens consumed",
+                    "type": "integer"
+                },
+                "period": {
+                    "description": "\"today\", \"yesterday\", \"last_7_days\", \"last_30_days\"",
+                    "type": "string"
+                },
+                "product_embeddings_count": {
+                    "description": "Products processed for embeddings",
+                    "type": "integer"
+                },
+                "product_embeddings_ran": {
+                    "description": "Embeddings info",
+                    "type": "boolean"
+                },
+                "product_suggestions": {
+                    "description": "Total product suggestions made",
+                    "type": "integer"
+                },
+                "query_embeddings": {
+                    "description": "Additional billing-relevant metrics",
+                    "type": "integer"
+                },
+                "sendgrid_emails_sent": {
+                    "description": "Emails sent via SendGrid",
+                    "type": "integer"
+                },
+                "start_date": {
+                    "description": "Period start",
+                    "type": "string"
+                },
+                "support_escalations": {
+                    "description": "Support requests sent",
+                    "type": "integer"
+                },
+                "support_summarizations": {
+                    "description": "GPT calls for support summaries (billable)",
+                    "type": "integer"
+                },
+                "support_summary_tokens": {
+                    "description": "Tokens used for support summarizations",
+                    "type": "integer"
+                },
+                "thread_embeddings_count": {
+                    "description": "Threads processed for embeddings",
+                    "type": "integer"
+                },
+                "total_conversations": {
+                    "description": "Total chat conversations",
+                    "type": "integer"
+                },
+                "total_email_embeddings": {
+                    "description": "Total email embeddings in DB",
+                    "type": "integer"
+                },
+                "total_emails": {
+                    "description": "Total emails in database",
+                    "type": "integer"
+                },
+                "total_product_embeddings": {
+                    "description": "Total product embeddings in DB",
+                    "type": "integer"
+                },
+                "unique_products_viewed": {
+                    "description": "Unique products suggested",
+                    "type": "integer"
                 }
             }
         },

@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"ids/internal/analytics"
 	"ids/internal/config"
 	"ids/internal/database"
 	"ids/internal/embeddings"
@@ -35,6 +36,18 @@ func main() {
 	readDB, writeClient := initializeDatabases(cfg)
 	defer closeDatabases(readDB, writeClient)
 
+	// Initialize analytics service
+	var analyticsService *analytics.Service
+	if writeClient != nil {
+		var err error
+		analyticsService, err = analytics.NewService(writeClient)
+		if err != nil {
+			log.Printf("Warning: Failed to initialize analytics service: %v", err)
+		} else {
+			fmt.Println("Analytics service initialized successfully")
+		}
+	}
+
 	// Initialize embedding service
 	embeddingService := initializeEmbeddingService(cfg, readDB, writeClient, *runOnce)
 	if embeddingService != nil {
@@ -46,7 +59,7 @@ func main() {
 
 	// Run initial embedding generation if service is available
 	if embeddingService != nil {
-		handleInitialGeneration(embeddingService, *runOnce)
+		handleInitialGeneration(embeddingService, analyticsService, *runOnce)
 	}
 
 	// If running once, exit cleanly
@@ -56,7 +69,7 @@ func main() {
 	}
 
 	// Run scheduled mode
-	runScheduledMode(cfg, scheduleInterval, scheduleDescription, readDB, writeClient, embeddingService, sigChan)
+	runScheduledMode(cfg, scheduleInterval, scheduleDescription, readDB, writeClient, embeddingService, analyticsService, sigChan)
 }
 
 // printStartupMessage prints the startup message based on run mode
@@ -162,9 +175,9 @@ func setupSignalHandling() chan os.Signal {
 }
 
 // handleInitialGeneration runs the initial embedding generation
-func handleInitialGeneration(embeddingService *embeddings.WriteEmbeddingService, runOnce bool) {
+func handleInitialGeneration(embeddingService *embeddings.WriteEmbeddingService, analyticsService *analytics.Service, runOnce bool) {
 	fmt.Println("Running embedding generation...")
-	if err := runEmbeddingGeneration(embeddingService); err != nil {
+	if err := runEmbeddingGeneration(embeddingService, analyticsService); err != nil {
 		if isQuotaError(err) {
 			log.Printf("WARNING: Embedding generation skipped due to OpenAI quota: %v", err)
 			if runOnce {
@@ -185,7 +198,7 @@ func handleInitialGeneration(embeddingService *embeddings.WriteEmbeddingService,
 // runScheduledMode runs the scheduled embedding generation loop
 func runScheduledMode(cfg *config.Config, scheduleInterval time.Duration, scheduleDescription string,
 	readDB *sqlx.DB, writeClient *database.WriteClient,
-	embeddingService *embeddings.WriteEmbeddingService, sigChan chan os.Signal) {
+	embeddingService *embeddings.WriteEmbeddingService, analyticsService *analytics.Service, sigChan chan os.Signal) {
 	ticker := time.NewTicker(scheduleInterval)
 	defer ticker.Stop()
 
@@ -197,7 +210,7 @@ func runScheduledMode(cfg *config.Config, scheduleInterval time.Duration, schedu
 	for {
 		select {
 		case <-ticker.C:
-			handleScheduledGeneration(cfg, readDB, writeClient, &embeddingService)
+			handleScheduledGeneration(cfg, readDB, writeClient, &embeddingService, analyticsService)
 		case sig := <-sigChan:
 			fmt.Printf("\nReceived signal %v, shutting down gracefully...\n", sig)
 			return
@@ -207,7 +220,7 @@ func runScheduledMode(cfg *config.Config, scheduleInterval time.Duration, schedu
 
 // handleScheduledGeneration handles a scheduled embedding generation run
 func handleScheduledGeneration(cfg *config.Config, readDB *sqlx.DB, writeClient *database.WriteClient,
-	embeddingService **embeddings.WriteEmbeddingService) {
+	embeddingService **embeddings.WriteEmbeddingService, analyticsService *analytics.Service) {
 	fmt.Printf("\n=== SCHEDULED EMBEDDING GENERATION TRIGGERED ===\n")
 	fmt.Printf("Starting at: %s\n", time.Now().Format(time.RFC3339))
 
@@ -220,7 +233,7 @@ func handleScheduledGeneration(cfg *config.Config, readDB *sqlx.DB, writeClient 
 	}
 
 	// Run embedding generation
-	if err := runEmbeddingGeneration(*embeddingService); err != nil {
+	if err := runEmbeddingGeneration(*embeddingService, analyticsService); err != nil {
 		handleScheduledGenerationError(err, embeddingService)
 	} else {
 		fmt.Printf("Scheduled embedding generation completed successfully at: %s\n", time.Now().Format(time.RFC3339))
@@ -256,22 +269,34 @@ func handleScheduledGenerationError(err error, embeddingService **embeddings.Wri
 }
 
 // runEmbeddingGeneration runs the embedding generation process
-func runEmbeddingGeneration(embeddingService *embeddings.WriteEmbeddingService) error {
+func runEmbeddingGeneration(embeddingService *embeddings.WriteEmbeddingService, analyticsService *analytics.Service) error {
 	if embeddingService == nil {
 		return fmt.Errorf("embedding service is not initialized")
 	}
 
 	start := time.Now()
 
-	if err := embeddingService.GenerateProductEmbeddings(); err != nil {
+	stats, err := embeddingService.GenerateProductEmbeddingsWithStats()
+	if err != nil {
+		// Track failed embedding generation
+		if analyticsService != nil && stats != nil {
+			_ = analyticsService.TrackProductEmbeddings(stats.TotalProducts, stats.ChangedProducts, false)
+		}
 		if isQuotaError(err) {
 			return fmt.Errorf("OpenAI quota exceeded: %v", err)
 		}
 		return fmt.Errorf("failed to generate product embeddings: %v", err)
 	}
 
+	// Track successful embedding generation
+	if analyticsService != nil && stats != nil {
+		if trackErr := analyticsService.TrackProductEmbeddings(stats.TotalProducts, stats.ChangedProducts, stats.Success); trackErr != nil {
+			log.Printf("Warning: Failed to track product embeddings analytics: %v", trackErr)
+		}
+	}
+
 	duration := time.Since(start)
-	fmt.Printf("Successfully generated embeddings in %v\n", duration)
+	fmt.Printf("Successfully generated embeddings in %v (total: %d, changed: %d)\n", duration, stats.TotalProducts, stats.ChangedProducts)
 	return nil
 }
 

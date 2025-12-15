@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"ids/internal/analytics"
 	"ids/internal/config"
 	"ids/internal/database"
 	"ids/internal/emails"
@@ -42,6 +43,13 @@ func main() {
 			log.Printf("Error closing write client: %v", err)
 		}
 	}()
+
+	// Initialize analytics service
+	var analyticsService *analytics.Service
+	analyticsService, err = analytics.NewService(writeClient)
+	if err != nil {
+		log.Printf("Warning: Failed to initialize analytics service: %v", err)
+	}
 
 	// Create email embedding service
 	emailService, err := emails.NewEmailEmbeddingService(cfg, writeClient)
@@ -108,15 +116,33 @@ func main() {
 	fmt.Printf("Stored %d emails successfully (%d errors)\n", successCount, errorCount)
 
 	// Generate embeddings if requested
+	emailEmbeddingsCount := 0
+	threadEmbeddingsCount := 0
 	if *generateEmbeddings {
 		fmt.Println("\nGenerating embeddings for individual emails...")
-		if err := emailService.GenerateEmailEmbeddings(); err != nil {
+		emailStats, err := emailService.GenerateEmailEmbeddingsWithStats()
+		if err != nil {
 			log.Printf("Warning: Failed to generate email embeddings: %v", err)
+		} else if emailStats != nil {
+			emailEmbeddingsCount = emailStats.EmailsProcessed
 		}
 
 		fmt.Println("\nGenerating embeddings for email threads...")
-		if err := emailService.GenerateThreadEmbeddings(); err != nil {
+		threadCount, err := emailService.GenerateThreadEmbeddingsWithStats()
+		if err != nil {
 			log.Printf("Warning: Failed to generate thread embeddings: %v", err)
+		} else {
+			threadEmbeddingsCount = threadCount
+		}
+
+		// Track email embeddings analytics
+		if analyticsService != nil {
+			if err := analyticsService.TrackEmailEmbeddings(emailEmbeddingsCount, true); err != nil {
+				log.Printf("Warning: Failed to track email embeddings: %v", err)
+			}
+			if err := analyticsService.TrackThreadEmbeddings(threadEmbeddingsCount, true); err != nil {
+				log.Printf("Warning: Failed to track thread embeddings: %v", err)
+			}
 		}
 
 		fmt.Println("Embedding generation complete!")
@@ -126,6 +152,7 @@ func main() {
 	fmt.Printf("  - Parsed: %d emails\n", len(parsedEmails))
 	fmt.Printf("  - Stored: %d emails\n", successCount)
 	if *generateEmbeddings {
-		fmt.Println("  - Embeddings: Generated")
+		fmt.Printf("  - Email embeddings: %d\n", emailEmbeddingsCount)
+		fmt.Printf("  - Thread embeddings: %d\n", threadEmbeddingsCount)
 	}
 }

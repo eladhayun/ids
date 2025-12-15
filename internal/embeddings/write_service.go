@@ -180,8 +180,22 @@ func (wes *WriteEmbeddingService) updateProductChecksum(productID int, checksum 
 	return err
 }
 
+// EmbeddingStats contains statistics about an embedding generation run
+type EmbeddingStats struct {
+	TotalProducts   int
+	ChangedProducts int
+	Success         bool
+}
+
 // GenerateProductEmbeddings generates embeddings only for products that have changed
 func (wes *WriteEmbeddingService) GenerateProductEmbeddings() error {
+	_, err := wes.GenerateProductEmbeddingsWithStats()
+	return err
+}
+
+// GenerateProductEmbeddingsWithStats generates embeddings and returns statistics
+func (wes *WriteEmbeddingService) GenerateProductEmbeddingsWithStats() (*EmbeddingStats, error) {
+	stats := &EmbeddingStats{}
 	fmt.Printf("[WRITE_EMBEDDING_GEN] ===== STARTING INCREMENTAL EMBEDDING GENERATION =====\n")
 
 	fmt.Printf("[WRITE_EMBEDDING_GEN] Fetching products from database...\n")
@@ -191,7 +205,7 @@ func (wes *WriteEmbeddingService) GenerateProductEmbeddings() error {
 	rows, err := wes.readDB.Query(queryProducts)
 	if err != nil {
 		fmt.Printf("[WRITE_EMBEDDING_GEN] ERROR: Failed to fetch products: %v\n", err)
-		return fmt.Errorf("failed to fetch products: %v", err)
+		return stats, fmt.Errorf("failed to fetch products: %v", err)
 	}
 	defer func() {
 		if err := rows.Close(); err != nil {
@@ -222,6 +236,7 @@ func (wes *WriteEmbeddingService) GenerateProductEmbeddings() error {
 	}
 
 	fmt.Printf("[WRITE_EMBEDDING_GEN] Found %d total products in database\n", len(allProducts))
+	stats.TotalProducts = len(allProducts)
 
 	// Get stored checksums
 	fmt.Printf("[WRITE_EMBEDDING_GEN] Fetching stored product checksums...\n")
@@ -243,11 +258,13 @@ func (wes *WriteEmbeddingService) GenerateProductEmbeddings() error {
 	}
 
 	fmt.Printf("[WRITE_EMBEDDING_GEN] Found %d changed/new products out of %d total\n", len(changedProducts), len(allProducts))
+	stats.ChangedProducts = len(changedProducts)
 
 	if len(changedProducts) == 0 {
 		fmt.Printf("[WRITE_EMBEDDING_GEN] No products changed. Skipping embedding generation.\n")
 		fmt.Printf("[WRITE_EMBEDDING_GEN] ===== EMBEDDING GENERATION COMPLETE (NO CHANGES) =====\n")
-		return nil
+		stats.Success = true
+		return stats, nil
 	}
 
 	// Process changed products in batches to avoid API limits
@@ -267,7 +284,7 @@ func (wes *WriteEmbeddingService) GenerateProductEmbeddings() error {
 		batch := changedProducts[i:end]
 		if err := wes.processBatch(batch); err != nil {
 			fmt.Printf("[WRITE_EMBEDDING_GEN] ERROR: Failed to process batch %d-%d: %v\n", i, end, err)
-			return fmt.Errorf("failed to process batch %d-%d: %v", i, end, err)
+			return stats, fmt.Errorf("failed to process batch %d-%d: %v", i, end, err)
 		}
 
 		// Update checksums for successfully processed products
@@ -282,7 +299,8 @@ func (wes *WriteEmbeddingService) GenerateProductEmbeddings() error {
 	}
 
 	fmt.Printf("[WRITE_EMBEDDING_GEN] ===== EMBEDDING GENERATION COMPLETE =====\n")
-	return nil
+	stats.Success = true
+	return stats, nil
 }
 
 // GenerateSingleProductEmbedding generates embedding for a single product

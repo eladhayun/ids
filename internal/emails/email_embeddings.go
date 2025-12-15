@@ -241,8 +241,22 @@ func (ees *EmailEmbeddingService) updateThread(threadID string, email *models.Em
 	return err
 }
 
+// EmailEmbeddingStats contains statistics about email embedding generation
+type EmailEmbeddingStats struct {
+	EmailsProcessed  int
+	ThreadsProcessed int
+	Success          bool
+}
+
 // GenerateEmailEmbeddings generates embeddings for all emails without embeddings
 func (ees *EmailEmbeddingService) GenerateEmailEmbeddings() error {
+	_, err := ees.GenerateEmailEmbeddingsWithStats()
+	return err
+}
+
+// GenerateEmailEmbeddingsWithStats generates embeddings and returns statistics
+func (ees *EmailEmbeddingService) GenerateEmailEmbeddingsWithStats() (*EmailEmbeddingStats, error) {
+	stats := &EmailEmbeddingStats{}
 	fmt.Println("[EMAIL_EMBEDDINGS] Starting email embedding generation...")
 
 	// Get emails without embeddings
@@ -257,7 +271,7 @@ func (ees *EmailEmbeddingService) GenerateEmailEmbeddings() error {
 
 	rows, err := ees.db.GetDB().Query(query)
 	if err != nil {
-		return fmt.Errorf("failed to fetch emails: %w", err)
+		return stats, fmt.Errorf("failed to fetch emails: %w", err)
 	}
 	defer func() {
 		if err := rows.Close(); err != nil {
@@ -295,10 +309,11 @@ func (ees *EmailEmbeddingService) GenerateEmailEmbeddings() error {
 	}
 
 	if err = rows.Err(); err != nil {
-		return fmt.Errorf("failed to iterate emails: %w", err)
+		return stats, fmt.Errorf("failed to iterate emails: %w", err)
 	}
 
 	fmt.Printf("[EMAIL_EMBEDDINGS] Found %d emails to process\n", len(emails))
+	stats.EmailsProcessed = len(emails)
 
 	// Process in batches
 	batchSize := 50
@@ -318,7 +333,8 @@ func (ees *EmailEmbeddingService) GenerateEmailEmbeddings() error {
 	}
 
 	fmt.Println("[EMAIL_EMBEDDINGS] Email embedding generation complete")
-	return nil
+	stats.Success = true
+	return stats, nil
 }
 
 // processEmailBatch processes a batch of emails and generates embeddings
@@ -359,6 +375,12 @@ func (ees *EmailEmbeddingService) processEmailBatch(emails []models.Email) error
 
 // GenerateThreadEmbeddings generates embeddings for email threads
 func (ees *EmailEmbeddingService) GenerateThreadEmbeddings() error {
+	_, err := ees.GenerateThreadEmbeddingsWithStats()
+	return err
+}
+
+// GenerateThreadEmbeddingsWithStats generates thread embeddings and returns statistics
+func (ees *EmailEmbeddingService) GenerateThreadEmbeddingsWithStats() (int, error) {
 	fmt.Println("[THREAD_EMBEDDINGS] Starting thread embedding generation...")
 
 	// Get threads without thread-level embeddings
@@ -373,7 +395,7 @@ func (ees *EmailEmbeddingService) GenerateThreadEmbeddings() error {
 
 	rows, err := ees.db.GetDB().Query(query)
 	if err != nil {
-		return fmt.Errorf("failed to fetch threads: %w", err)
+		return 0, fmt.Errorf("failed to fetch threads: %w", err)
 	}
 	defer func() {
 		if err := rows.Close(); err != nil {
@@ -401,7 +423,7 @@ func (ees *EmailEmbeddingService) GenerateThreadEmbeddings() error {
 	}
 
 	if err = rows.Err(); err != nil {
-		return fmt.Errorf("failed to iterate threads: %w", err)
+		return 0, fmt.Errorf("failed to iterate threads: %w", err)
 	}
 
 	fmt.Printf("[THREAD_EMBEDDINGS] Found %d threads to process\n", len(threads))
@@ -414,7 +436,7 @@ func (ees *EmailEmbeddingService) GenerateThreadEmbeddings() error {
 	}
 
 	fmt.Println("[THREAD_EMBEDDINGS] Thread embedding generation complete")
-	return nil
+	return len(threads), nil
 }
 
 // generateThreadEmbedding generates an embedding for a complete thread
