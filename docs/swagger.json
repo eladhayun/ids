@@ -177,6 +177,52 @@
                 }
             }
         },
+        "/api/chat/request-support": {
+            "post": {
+                "description": "Escalate conversation to support team with customer email",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "support"
+                ],
+                "summary": "Request support escalation",
+                "parameters": [
+                    {
+                        "description": "Support request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.SupportRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.SupportResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/models.SupportResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/models.SupportResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/healthz": {
             "get": {
                 "description": "Get basic health status of the application",
@@ -312,6 +358,11 @@
                         "type": "string"
                     }
                 },
+                "request_support": {
+                    "description": "Whether to request customer email for support escalation",
+                    "type": "boolean",
+                    "example": false
+                },
                 "response": {
                     "description": "AI response message",
                     "type": "string",
@@ -384,6 +435,44 @@
                     "description": "Application version",
                     "type": "string",
                     "example": "1.0.0"
+                }
+            }
+        },
+        "models.SupportRequest": {
+            "description": "Support escalation request payload",
+            "type": "object",
+            "properties": {
+                "conversation": {
+                    "description": "Full conversation history",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/models.ConversationMessage"
+                    }
+                },
+                "customer_email": {
+                    "description": "Customer email address",
+                    "type": "string"
+                }
+            }
+        },
+        "models.SupportResponse": {
+            "description": "Support escalation response payload",
+            "type": "object",
+            "properties": {
+                "error": {
+                    "description": "Error message if any",
+                    "type": "string",
+                    "example": ""
+                },
+                "message": {
+                    "description": "Response message",
+                    "type": "string",
+                    "example": "Email sent successfully"
+                },
+                "success": {
+                    "description": "Whether the email was sent successfully",
+                    "type": "boolean",
+                    "example": true
                 }
             }
         }

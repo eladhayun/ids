@@ -144,6 +144,9 @@ func (s *Server) setupRoutes() {
 		api.POST("/chat", handlers.ChatHandler(s.db, s.config, s.cache, s.embeddingService, s.writeClient))
 	}
 
+	// Support escalation endpoint
+	api.POST("/chat/request-support", handlers.SupportRequestHandler(s.config))
+
 	// Admin endpoints
 	admin := api.Group("/admin")
 	admin.POST("/import-emails", handlers.TriggerEmailImportHandler(s.config))                 // Triggers end-to-end email import (download + import + embed)

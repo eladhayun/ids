@@ -206,12 +206,26 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embeddingS
 			response += fmt.Sprintf("\n\n**Found %d relevant products**", len(inStockProducts))
 		}
 
+		// Detect if customer is dissatisfied and needs support escalation
+		requestSupport := detectDissatisfaction(
+			req.Conversation,
+			userQuery,
+			inStockProducts,
+			similarEmails,
+		)
+
+		if requestSupport {
+			response += "\n\nI notice you might need additional assistance. Would you like me to send this conversation to our support team? Please provide your email address so we can help you better."
+			fmt.Printf("[CHAT] ⚠️  Dissatisfaction detected - requesting support escalation\n")
+		}
+
 		fmt.Printf("[CHAT] 📊 DATASOURCE SUMMARY: Used %d product embeddings, %d email embeddings\n", len(inStockProducts), len(similarEmails))
 		fmt.Printf("[CHAT] ===== REQUEST COMPLETE =====\n\n")
 
 		return c.JSON(http.StatusOK, models.ChatResponse{
-			Response: response,
-			Products: productMetadata,
+			Response:       response,
+			Products:       productMetadata,
+			RequestSupport: requestSupport,
 		})
 	}
 }
@@ -416,4 +430,193 @@ func getThreadEmails(threadID string) ([]models.Email, error) {
 	// This is a simplified version - in production, you'd inject the DB connection
 	// For now, we'll return an error to use the summary instead
 	return nil, fmt.Errorf("thread detail retrieval not available in this context")
+}
+
+// detectDissatisfaction uses heuristics to detect if customer needs support escalation
+func detectDissatisfaction(
+	conversation []models.ConversationMessage,
+	currentQuery string,
+	products []embeddings.ProductEmbedding,
+	similarEmails []models.EmailSearchResult,
+) bool {
+	// 1. Check for repeated questions
+	if hasRepeatedQuestions(conversation) {
+		fmt.Printf("[DETECTION] Repeated questions detected\n")
+		return true
+	}
+
+	// 2. Check for dissatisfaction keywords
+	if hasDissatisfactionKeywords(currentQuery) {
+		fmt.Printf("[DETECTION] Dissatisfaction keywords detected\n")
+		return true
+	}
+
+	// 3. Check for no products found when query seems product-related
+	if hasProductRelatedQueryButNoResults(currentQuery, products) {
+		fmt.Printf("[DETECTION] Product-related query with no results\n")
+		return true
+	}
+
+	// 4. Check for low similarity scores
+	if hasLowSimilarityScores(products, similarEmails) {
+		fmt.Printf("[DETECTION] Low similarity scores detected\n")
+		return true
+	}
+
+	return false
+}
+
+// hasRepeatedQuestions checks if user asks similar questions multiple times
+func hasRepeatedQuestions(conversation []models.ConversationMessage) bool {
+	// Get last 5 user messages
+	var userMessages []string
+	count := 0
+	for i := len(conversation) - 1; i >= 0 && count < 5; i-- {
+		if strings.Contains(strings.ToLower(conversation[i].Role), "user") {
+			userMessages = append(userMessages, strings.ToLower(strings.TrimSpace(conversation[i].Message)))
+			count++
+		}
+	}
+
+	// Check for similarity between any two messages
+	for i := 0; i < len(userMessages); i++ {
+		for j := i + 1; j < len(userMessages); j++ {
+			similarity := calculateSimilarity(userMessages[i], userMessages[j])
+			if similarity > 0.7 {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// calculateSimilarity calculates simple word overlap similarity between two strings
+func calculateSimilarity(s1, s2 string) float64 {
+	words1 := strings.Fields(s1)
+	words2 := strings.Fields(s2)
+
+	if len(words1) == 0 || len(words2) == 0 {
+		return 0.0
+	}
+
+	// Count common words
+	common := 0
+	wordMap := make(map[string]bool)
+	for _, word := range words1 {
+		wordMap[word] = true
+	}
+	for _, word := range words2 {
+		if wordMap[word] {
+			common++
+		}
+	}
+
+	// Return similarity as ratio of common words to total unique words
+	totalUnique := len(wordMap)
+	for _, word := range words2 {
+		if !wordMap[word] {
+			totalUnique++
+		}
+	}
+
+	if totalUnique == 0 {
+		return 0.0
+	}
+
+	return float64(common) / float64(totalUnique)
+}
+
+// hasDissatisfactionKeywords checks for keywords indicating dissatisfaction
+func hasDissatisfactionKeywords(query string) bool {
+	queryLower := strings.ToLower(query)
+	dissatisfactionKeywords := []string{
+		"not helpful",
+		"wrong",
+		"doesn't work",
+		"still don't",
+		"not what i",
+		"incorrect",
+		"useless",
+		"not working",
+		"doesn't help",
+		"can't find",
+		"no results",
+		"nothing found",
+		"not satisfied",
+		"not good",
+		"bad",
+	}
+
+	for _, keyword := range dissatisfactionKeywords {
+		if strings.Contains(queryLower, keyword) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// hasProductRelatedQueryButNoResults checks if query seems product-related but no products found
+func hasProductRelatedQueryButNoResults(query string, products []embeddings.ProductEmbedding) bool {
+	if len(products) > 0 {
+		return false
+	}
+
+	queryLower := strings.ToLower(query)
+	productKeywords := []string{
+		"product",
+		"item",
+		"have",
+		"stock",
+		"available",
+		"show",
+		"find",
+		"search",
+		"looking for",
+		"need",
+		"want",
+		"buy",
+		"purchase",
+	}
+
+	hasProductKeyword := false
+	for _, keyword := range productKeywords {
+		if strings.Contains(queryLower, keyword) {
+			hasProductKeyword = true
+			break
+		}
+	}
+
+	return hasProductKeyword
+}
+
+// hasLowSimilarityScores checks if both product and email search returned low similarity
+func hasLowSimilarityScores(products []embeddings.ProductEmbedding, similarEmails []models.EmailSearchResult) bool {
+	// Check product similarity
+	hasLowProductSimilarity := true
+	if len(products) > 0 {
+		// Check if any product has similarity >= 0.3
+		for _, product := range products {
+			if product.Similarity >= 0.3 {
+				hasLowProductSimilarity = false
+				break
+			}
+		}
+	}
+
+	// Check email similarity
+	hasLowEmailSimilarity := true
+	if len(similarEmails) > 0 {
+		// Check if any email has similarity >= 0.3
+		for _, email := range similarEmails {
+			if email.Similarity >= 0.3 {
+				hasLowEmailSimilarity = false
+				break
+			}
+		}
+	}
+
+	// If both are low, it's a sign of dissatisfaction
+	return hasLowProductSimilarity && hasLowEmailSimilarity && (len(products) > 0 || len(similarEmails) > 0)
 }

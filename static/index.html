@@ -106,6 +106,25 @@
     </div>
   </div>
 
+  <!-- Support Email Modal -->
+  <div class="modal" id="supportEmailModal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Contact Support</h3>
+        <button class="modal-close" id="closeSupportModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p>We'll send this conversation to our support team. Please provide your email address:</p>
+        <input type="email" id="supportEmailInput" placeholder="your.email@example.com" class="email-input">
+        <p class="error-message" id="emailError" style="display: none; color: #ef4444; margin-top: 8px; font-size: 14px;"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" id="sendSupportButton">Send to Support</button>
+        <button class="btn btn-secondary" id="cancelSupportButton">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <script src="script.js"></script>
 </body>
 

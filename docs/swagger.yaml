@@ -54,6 +54,10 @@ definitions:
           type: string
         description: Product name to SKU mapping for link generation
         type: object
+      request_support:
+        description: Whether to request customer email for support escalation
+        example: false
+        type: boolean
       response:
         description: AI response message
         example: Hello! How can I help you today?
@@ -110,6 +114,34 @@ definitions:
         description: Application version
         example: 1.0.0
         type: string
+    type: object
+  models.SupportRequest:
+    description: Support escalation request payload
+    properties:
+      conversation:
+        description: Full conversation history
+        items:
+          $ref: '#/definitions/models.ConversationMessage'
+        type: array
+      customer_email:
+        description: Customer email address
+        type: string
+    type: object
+  models.SupportResponse:
+    description: Support escalation response payload
+    properties:
+      error:
+        description: Error message if any
+        example: ""
+        type: string
+      message:
+        description: Response message
+        example: Email sent successfully
+        type: string
+      success:
+        description: Whether the email was sent successfully
+        example: true
+        type: boolean
     type: object
 info:
   contact: {}
@@ -230,6 +262,36 @@ paths:
       summary: Chat with AI using enhanced vector search (products + email history)
       tags:
       - chat
+  /api/chat/request-support:
+    post:
+      consumes:
+      - application/json
+      description: Escalate conversation to support team with customer email
+      parameters:
+      - description: Support request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.SupportRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.SupportResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.SupportResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.SupportResponse'
+      summary: Request support escalation
+      tags:
+      - support
   /api/healthz:
     get:
       consumes:

@@ -25,6 +25,12 @@ class ChatBot {
     this.closeErrorModal = document.getElementById('closeErrorModal');
     this.retryButton = document.getElementById('retryButton');
     this.dismissErrorButton = document.getElementById('dismissErrorButton');
+    this.supportEmailModal = document.getElementById('supportEmailModal');
+    this.supportEmailInput = document.getElementById('supportEmailInput');
+    this.emailError = document.getElementById('emailError');
+    this.sendSupportButton = document.getElementById('sendSupportButton');
+    this.cancelSupportButton = document.getElementById('cancelSupportButton');
+    this.closeSupportModal = document.getElementById('closeSupportModal');
   }
 
   attachEventListeners() {
@@ -54,6 +60,17 @@ class ChatBot {
       this.sendMessage();
     });
     this.dismissErrorButton.addEventListener('click', () => this.hideErrorModal());
+
+    // Support email modal controls
+    this.closeSupportModal.addEventListener('click', () => this.hideSupportModal());
+    this.cancelSupportButton.addEventListener('click', () => this.hideSupportModal());
+    this.sendSupportButton.addEventListener('click', () => this.sendSupportRequest());
+    this.supportEmailInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.sendSupportRequest();
+      }
+    });
 
     // Close modal on backdrop click
     this.errorModal.addEventListener('click', (e) => {
@@ -127,6 +144,11 @@ class ChatBot {
 
       // Add bot response
       this.addMessage('assistant', response.content, response.products);
+
+      // Check if support escalation is requested
+      if (response.request_support) {
+        this.showSupportModal();
+      }
 
       // Reset retry count on success
       this.retryCount = 0;
@@ -217,15 +239,16 @@ class ChatBot {
       throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
     }
 
-    const data = await response.json();
-    if (data.error) {
-      throw new Error(data.error);
-    }
+      const data = await response.json();
+      if (data.error) {
+        throw new Error(data.error);
+      }
 
-    return {
-      content: data.response,
-      products: data.products || {}
-    };
+      return {
+        content: data.response,
+        products: data.products || {},
+        request_support: data.request_support || false
+      };
   }
 
   handleError(error) {
@@ -336,6 +359,84 @@ class ChatBot {
     } catch (error) {
       console.error('Markdown parsing error:', error);
       return `<p>${this.escapeHtml(content)}</p>`;
+    }
+  }
+
+  validateEmail(email) {
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(email);
+  }
+
+  showSupportModal() {
+    this.supportEmailInput.value = '';
+    this.emailError.style.display = 'none';
+    this.supportEmailModal.style.display = 'flex';
+    // Focus on email input
+    setTimeout(() => this.supportEmailInput.focus(), 100);
+  }
+
+  hideSupportModal() {
+    this.supportEmailModal.style.display = 'none';
+    this.supportEmailInput.value = '';
+    this.emailError.style.display = 'none';
+  }
+
+  async sendSupportRequest() {
+    const email = this.supportEmailInput.value.trim();
+
+    // Validate email format
+    if (!email) {
+      this.emailError.textContent = 'Please enter your email address';
+      this.emailError.style.display = 'block';
+      return;
+    }
+
+    if (!this.validateEmail(email)) {
+      this.emailError.textContent = 'Please enter a valid email address';
+      this.emailError.style.display = 'block';
+      return;
+    }
+
+    // Hide error message
+    this.emailError.style.display = 'none';
+
+    // Disable button during request
+    this.sendSupportButton.disabled = true;
+    this.sendSupportButton.textContent = 'Sending...';
+
+    try {
+      const response = await fetch('/api/chat/request-support', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          conversation: this.conversation,
+          customer_email: email
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to send support request');
+      }
+
+      // Show success message
+      this.addMessage('assistant', data.message || 'Your conversation has been sent to our support team. We\'ll get back to you soon!');
+      this.hideSupportModal();
+
+    } catch (error) {
+      console.error('Support request error:', error);
+      this.emailError.textContent = error.message || 'Failed to send support request. Please try again.';
+      this.emailError.style.display = 'block';
+    } finally {
+      this.sendSupportButton.disabled = false;
+      this.sendSupportButton.textContent = 'Send to Support';
     }
   }
 

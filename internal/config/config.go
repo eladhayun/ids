@@ -18,10 +18,12 @@ type Config struct {
 	Version                string
 	LogLevel               string
 	OpenAIKey              string
-	WaitForTunnel          bool // Whether to wait for SSH tunnel to be ready
-	OpenAITimeout          int  // OpenAI API timeout in seconds
-	EmbeddingScheduleHours int  // Embedding generation schedule interval in hours
-	EnableEmailContext     bool // Whether to include email history in chat responses
+	WaitForTunnel          bool   // Whether to wait for SSH tunnel to be ready
+	OpenAITimeout          int    // OpenAI API timeout in seconds
+	EmbeddingScheduleHours int    // Embedding generation schedule interval in hours
+	EnableEmailContext     bool   // Whether to include email history in chat responses
+	SendGridAPIKey         string // SendGrid API key for sending support escalation emails
+	SupportEmail           string // Support email address (default: support@israeldefensestore.com)
 }
 
 // Load initializes and returns application configuration
@@ -38,10 +40,12 @@ func Load() *Config {
 		Version:                getEnv("VERSION", "1.0.0"),
 		LogLevel:               getEnv("LOG_LEVEL", "info"),
 		OpenAIKey:              os.Getenv("OPENAI_API_KEY"),
-		WaitForTunnel:          getEnvBool("WAIT_FOR_TUNNEL", true),                 // Default true for production safety
-		OpenAITimeout:          getEnvInt("OPENAI_TIMEOUT", 60),                     // Default 60 seconds
-		EmbeddingScheduleHours: getEnvInt("EMBEDDING_SCHEDULE_INTERVAL_HOURS", 168), // Default 168 hours (1 week)
-		EnableEmailContext:     getEnvBool("ENABLE_EMAIL_CONTEXT", true),            // Default true to use email history
+		WaitForTunnel:          getEnvBool("WAIT_FOR_TUNNEL", true),                       // Default true for production safety
+		OpenAITimeout:          getEnvInt("OPENAI_TIMEOUT", 60),                           // Default 60 seconds
+		EmbeddingScheduleHours: getEnvInt("EMBEDDING_SCHEDULE_INTERVAL_HOURS", 168),       // Default 168 hours (1 week)
+		EnableEmailContext:     getEnvBool("ENABLE_EMAIL_CONTEXT", true),                  // Default true to use email history
+		SendGridAPIKey:         os.Getenv("SENDGRID_API_KEY"),                             // SendGrid API key for support emails
+		SupportEmail:           getEnv("SUPPORT_EMAIL", "support@israeldefensestore.com"), // Support email address
 	}
 
 	return config

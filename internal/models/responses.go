@@ -52,7 +52,23 @@ type ChatRequest struct {
 // ChatResponse represents the response from the chat endpoint
 // @Description Chat response payload
 type ChatResponse struct {
-	Response string            `json:"response" example:"Hello! How can I help you today?"` // AI response message
-	Error    string            `json:"error,omitempty" example:""`                          // Error message if any
-	Products map[string]string `json:"products,omitempty"`                                  // Product name to SKU mapping for link generation
+	Response       string            `json:"response" example:"Hello! How can I help you today?"` // AI response message
+	Error          string            `json:"error,omitempty" example:""`                          // Error message if any
+	Products       map[string]string `json:"products,omitempty"`                                  // Product name to SKU mapping for link generation
+	RequestSupport bool              `json:"request_support,omitempty" example:"false"`           // Whether to request customer email for support escalation
+}
+
+// SupportRequest represents a request to escalate conversation to support
+// @Description Support escalation request payload
+type SupportRequest struct {
+	Conversation  []ConversationMessage `json:"conversation"`   // Full conversation history
+	CustomerEmail string                `json:"customer_email"` // Customer email address
+}
+
+// SupportResponse represents the response from the support escalation endpoint
+// @Description Support escalation response payload
+type SupportResponse struct {
+	Success bool   `json:"success" example:"true"`                    // Whether the email was sent successfully
+	Message string `json:"message" example:"Email sent successfully"` // Response message
+	Error   string `json:"error,omitempty" example:""`                // Error message if any
 }
