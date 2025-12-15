@@ -166,17 +166,17 @@ test-clean:
 # Run E2E tests (with visible browser)
 test-e2e:
 	@echo "Running E2E tests with visible browser..."
-	@E2E_HEADLESS=false E2E_BASE_URL=$(E2E_BASE_URL) go test -v -timeout 10m ./e2e/...
+	@E2E_HEADLESS=false E2E_BASE_URL=$(E2E_BASE_URL) E2E_SUPPORT_EMAIL=$(E2E_SUPPORT_EMAIL) go test -v -timeout 10m ./e2e/...
 
 # Run E2E tests (headless mode)
 test-e2e-headless:
 	@echo "Running E2E tests in headless mode..."
-	@E2E_HEADLESS=true E2E_BASE_URL=$(E2E_BASE_URL) go test -v -timeout 10m ./e2e/...
+	@E2E_HEADLESS=true E2E_BASE_URL=$(E2E_BASE_URL) E2E_SUPPORT_EMAIL=$(E2E_SUPPORT_EMAIL) go test -v -timeout 10m ./e2e/...
 
 # Run quick E2E tests (core functionality only)
 test-e2e-quick:
 	@echo "Running quick E2E tests..."
-	@E2E_HEADLESS=true E2E_BASE_URL=$(E2E_BASE_URL) go test -v -timeout 5m -run "TestAppLoads|TestConnectionStatus|TestChatInteraction" ./e2e/...
+	@E2E_HEADLESS=true E2E_BASE_URL=$(E2E_BASE_URL) E2E_SUPPORT_EMAIL=$(E2E_SUPPORT_EMAIL) go test -v -timeout 5m -run "TestAppLoads|TestConnectionStatus|TestChatInteraction|TestSupportEmailFeature" ./e2e/...
 
 # Clean build artifacts
 clean:
@@ -308,8 +308,9 @@ help:
 	@echo "E2E test commands:"
 	@echo "  test-e2e          - Run E2E tests with visible browser"
 	@echo "  test-e2e-headless - Run E2E tests in headless mode"
-	@echo "  test-e2e-quick    - Run quick E2E tests (core functionality only)"
+	@echo "  test-e2e-quick    - Run quick E2E tests (core + support email)"
 	@echo "                      Use E2E_BASE_URL to override target (default: https://ids.jshipster.io)"
+	@echo "                      Use E2E_SUPPORT_EMAIL for support test (default: elad@jshipster.io)"
 	@echo "                      Example: make test-e2e-quick E2E_BASE_URL=http://localhost:8080"
 	@echo ""
 	@echo "  help         - Show this help message"
