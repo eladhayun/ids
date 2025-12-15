@@ -1,4 +1,4 @@
-.PHONY: build run fmt tidy clean test help dev swagger build-embeddings fmt-embeddings lint-embeddings run-embeddings build-import-emails import-emails import-emails-eml import-emails-mbox test-race test-all test-short test-package bench bench-package coverage-report test-clean
+.PHONY: build run fmt tidy clean test help dev swagger build-embeddings fmt-embeddings lint-embeddings run-embeddings build-import-emails import-emails import-emails-eml import-emails-mbox test-race test-all test-short test-package bench bench-package coverage-report test-clean test-e2e test-e2e-headless test-e2e-quick
 
 # Build configuration
 BINARY_NAME=server
@@ -163,6 +163,21 @@ test-clean:
 	@go clean -testcache
 	@echo "Test cache cleaned"
 
+# Run E2E tests (with visible browser)
+test-e2e:
+	@echo "Running E2E tests with visible browser..."
+	@E2E_HEADLESS=false E2E_BASE_URL=$(E2E_BASE_URL) go test -v -timeout 10m ./e2e/...
+
+# Run E2E tests (headless mode)
+test-e2e-headless:
+	@echo "Running E2E tests in headless mode..."
+	@E2E_HEADLESS=true E2E_BASE_URL=$(E2E_BASE_URL) go test -v -timeout 10m ./e2e/...
+
+# Run quick E2E tests (core functionality only)
+test-e2e-quick:
+	@echo "Running quick E2E tests..."
+	@E2E_HEADLESS=true E2E_BASE_URL=$(E2E_BASE_URL) go test -v -timeout 5m -run "TestAppLoads|TestConnectionStatus|TestChatInteraction" ./e2e/...
+
 # Clean build artifacts
 clean:
 	@echo "Cleaning up..."
@@ -289,5 +304,12 @@ help:
 	@echo "                        Usage: make import-emails-eml PATH_TO_EMAILS=/path/to/emails"
 	@echo "  import-emails-mbox  - Import MBOX file"
 	@echo "                        Usage: make import-emails-mbox PATH_TO_MBOX=/path/to/file.mbox"
+	@echo ""
+	@echo "E2E test commands:"
+	@echo "  test-e2e          - Run E2E tests with visible browser"
+	@echo "  test-e2e-headless - Run E2E tests in headless mode"
+	@echo "  test-e2e-quick    - Run quick E2E tests (core functionality only)"
+	@echo "                      Use E2E_BASE_URL to override target (default: https://ids.jshipster.io)"
+	@echo "                      Example: make test-e2e-quick E2E_BASE_URL=http://localhost:8080"
 	@echo ""
 	@echo "  help         - Show this help message"

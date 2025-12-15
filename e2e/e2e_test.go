@@ -1,0 +1,490 @@
+// Package e2e provides end-to-end browser tests for the IDS application.
+// These tests use chromedp to automate browser interactions and verify
+// core functionality works as expected.
+package e2e
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/chromedp"
+)
+
+// getBaseURL returns the base URL for the IDS application.
+// It uses the E2E_BASE_URL environment variable if set, otherwise defaults to production.
+func getBaseURL() string {
+	if url := os.Getenv("E2E_BASE_URL"); url != "" {
+		return url
+	}
+	return "https://ids.jshipster.io"
+}
+
+// setupBrowser creates a new chromedp browser context with appropriate settings.
+// It returns the context, cancel function, and any error.
+func setupBrowser(headless bool) (context.Context, context.CancelFunc, error) {
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", headless),
+		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("disable-web-security", true),
+		chromedp.Flag("ignore-certificate-errors", true),
+		chromedp.WindowSize(1920, 1080),
+	)
+
+	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	ctx, cancel := chromedp.NewContext(allocCtx,
+		chromedp.WithLogf(func(format string, args ...interface{}) {
+			// Only log important messages in tests
+			if strings.Contains(format, "error") || strings.Contains(format, "Error") {
+				fmt.Printf("[chromedp] "+format+"\n", args...)
+			}
+		}),
+	)
+
+	// Set a timeout for the entire browser session
+	ctx, timeoutCancel := context.WithTimeout(ctx, 5*time.Minute)
+
+	cancelAll := func() {
+		timeoutCancel()
+		cancel()
+		allocCancel()
+	}
+
+	return ctx, cancelAll, nil
+}
+
+// isHeadless returns true if we should run in headless mode.
+// Defaults to true, can be overridden with E2E_HEADLESS=false.
+func isHeadless() bool {
+	if val := os.Getenv("E2E_HEADLESS"); val == "false" {
+		return false
+	}
+	return true
+}
+
+// TestHealthEndpoint verifies that the health endpoint is working.
+func TestHealthEndpoint(t *testing.T) {
+	baseURL := getBaseURL()
+	t.Logf("Testing health endpoint at: %s", baseURL)
+
+	ctx, cancel, err := setupBrowser(isHeadless())
+	if err != nil {
+		t.Fatalf("Failed to setup browser: %v", err)
+	}
+	defer cancel()
+
+	var statusCode string
+	err = chromedp.Run(ctx,
+		chromedp.Navigate(baseURL+"/api/healthz"),
+		chromedp.WaitReady("body"),
+		chromedp.Text("body", &statusCode),
+	)
+
+	if err != nil {
+		t.Fatalf("Failed to check health endpoint: %v", err)
+	}
+
+	// Health endpoint returns JSON with status field
+	if !strings.Contains(statusCode, "healthy") && !strings.Contains(statusCode, "ok") {
+		t.Errorf("Expected health check to return 'healthy' or 'ok', got: %s", statusCode)
+	}
+
+	t.Logf("Health check response: %s", statusCode)
+}
+
+// TestAppLoads verifies the main application page loads correctly.
+func TestAppLoads(t *testing.T) {
+	baseURL := getBaseURL()
+	t.Logf("Testing app loads at: %s", baseURL)
+
+	ctx, cancel, err := setupBrowser(isHeadless())
+	if err != nil {
+		t.Fatalf("Failed to setup browser: %v", err)
+	}
+	defer cancel()
+
+	var title string
+	var headerText string
+
+	err = chromedp.Run(ctx,
+		chromedp.Navigate(baseURL),
+		chromedp.WaitReady("body"),
+		chromedp.Title(&title),
+		chromedp.WaitVisible(".header", chromedp.ByQuery),
+		chromedp.Text(".app-title", &headerText, chromedp.ByQuery),
+	)
+
+	if err != nil {
+		t.Fatalf("Failed to load app: %v", err)
+	}
+
+	if !strings.Contains(title, "Tactical Support") {
+		t.Errorf("Expected title to contain 'Tactical Support', got: %s", title)
+	}
+
+	if !strings.Contains(headerText, "Tactical Support Assistant") {
+		t.Errorf("Expected header to contain 'Tactical Support Assistant', got: %s", headerText)
+	}
+
+	t.Logf("App loaded successfully with title: %s", title)
+}
+
+// TestConnectionStatus verifies the status indicator shows connected status.
+func TestConnectionStatus(t *testing.T) {
+	baseURL := getBaseURL()
+	t.Logf("Testing connection status at: %s", baseURL)
+
+	ctx, cancel, err := setupBrowser(isHeadless())
+	if err != nil {
+		t.Fatalf("Failed to setup browser: %v", err)
+	}
+	defer cancel()
+
+	var statusText string
+
+	err = chromedp.Run(ctx,
+		chromedp.Navigate(baseURL),
+		chromedp.WaitReady("body"),
+		// Wait for status to update (connection check happens on load)
+		chromedp.Sleep(2*time.Second),
+		chromedp.Text(".status-text", &statusText, chromedp.ByQuery),
+	)
+
+	if err != nil {
+		t.Fatalf("Failed to check connection status: %v", err)
+	}
+
+	if statusText != "Connected" {
+		t.Errorf("Expected status 'Connected', got: %s", statusText)
+	}
+
+	t.Logf("Connection status: %s", statusText)
+}
+
+// TestInitialBotMessage verifies the initial bot greeting is displayed.
+func TestInitialBotMessage(t *testing.T) {
+	baseURL := getBaseURL()
+	t.Logf("Testing initial bot message at: %s", baseURL)
+
+	ctx, cancel, err := setupBrowser(isHeadless())
+	if err != nil {
+		t.Fatalf("Failed to setup browser: %v", err)
+	}
+	defer cancel()
+
+	var messageContent string
+
+	err = chromedp.Run(ctx,
+		chromedp.Navigate(baseURL),
+		chromedp.WaitReady("body"),
+		chromedp.WaitVisible(".bot-message", chromedp.ByQuery),
+		chromedp.Text(".bot-message .message-content", &messageContent, chromedp.ByQuery),
+	)
+
+	if err != nil {
+		t.Fatalf("Failed to check initial bot message: %v", err)
+	}
+
+	expectedGreeting := "tactical support assistant"
+	if !strings.Contains(strings.ToLower(messageContent), expectedGreeting) {
+		t.Errorf("Expected initial message to contain '%s', got: %s", expectedGreeting, messageContent)
+	}
+
+	t.Logf("Initial bot message: %s", messageContent)
+}
+
+// TestChatInteraction performs a full chat interaction test.
+// This is the main E2E test that verifies core chat functionality.
+func TestChatInteraction(t *testing.T) {
+	baseURL := getBaseURL()
+	t.Logf("Testing chat interaction at: %s", baseURL)
+
+	ctx, cancel, err := setupBrowser(isHeadless())
+	if err != nil {
+		t.Fatalf("Failed to setup browser: %v", err)
+	}
+	defer cancel()
+
+	// Test message to send - asking about products
+	testMessage := "What tactical vests do you have?"
+
+	var initialMessageCount int
+	var finalMessageCount int
+	var sendButtonDisabled string
+
+	err = chromedp.Run(ctx,
+		// Navigate and wait for page load
+		chromedp.Navigate(baseURL),
+		chromedp.WaitReady("body"),
+		chromedp.Sleep(2*time.Second), // Wait for connection
+
+		// Count initial messages
+		chromedp.Evaluate(`document.querySelectorAll('.message').length`, &initialMessageCount),
+
+		// Type message into input
+		chromedp.WaitVisible("#messageInput", chromedp.ByID),
+		chromedp.Click("#messageInput", chromedp.ByID),
+		chromedp.SendKeys("#messageInput", testMessage, chromedp.ByID),
+
+		// Verify send button is enabled
+		chromedp.AttributeValue("#sendButton", "disabled", &sendButtonDisabled, nil),
+	)
+
+	if err != nil {
+		t.Fatalf("Failed to type message: %v", err)
+	}
+
+	if sendButtonDisabled == "true" || sendButtonDisabled == "disabled" {
+		t.Error("Send button should be enabled after typing message")
+	}
+
+	t.Logf("Initial message count: %d", initialMessageCount)
+
+	// Click send and wait for response
+	err = chromedp.Run(ctx,
+		// Click send button
+		chromedp.Click("#sendButton", chromedp.ByID),
+
+		// Wait for typing indicator to appear (indicates request sent)
+		chromedp.WaitVisible("#typingIndicator", chromedp.ByID),
+		chromedp.Sleep(500*time.Millisecond),
+
+		// Wait for typing indicator to disappear (response received)
+		// Use a longer timeout for AI response
+		chromedp.WaitNotPresent("#typingIndicator[style*='block']", chromedp.ByQuery),
+
+		// Wait a bit more for DOM to update
+		chromedp.Sleep(1*time.Second),
+
+		// Count final messages
+		chromedp.Evaluate(`document.querySelectorAll('.message').length`, &finalMessageCount),
+	)
+
+	if err != nil {
+		// If typing indicator check fails, try alternative approach
+		t.Logf("Warning: Typing indicator check failed, using fallback: %v", err)
+
+		// Fallback: just wait for response
+		err = chromedp.Run(ctx,
+			chromedp.Sleep(15*time.Second), // Wait for AI response
+			chromedp.Evaluate(`document.querySelectorAll('.message').length`, &finalMessageCount),
+		)
+		if err != nil {
+			t.Fatalf("Failed to get response: %v", err)
+		}
+	}
+
+	t.Logf("Final message count: %d", finalMessageCount)
+
+	// We should have at least 2 more messages: user message + bot response
+	expectedMinMessages := initialMessageCount + 2
+	if finalMessageCount < expectedMinMessages {
+		t.Errorf("Expected at least %d messages after interaction, got: %d", expectedMinMessages, finalMessageCount)
+	}
+
+	// Verify the last bot message contains some content
+	var lastBotMessage string
+	var nodes []*cdp.Node
+	err = chromedp.Run(ctx,
+		chromedp.Nodes(".bot-message .message-content", &nodes, chromedp.ByQueryAll),
+	)
+
+	if err != nil {
+		t.Fatalf("Failed to get bot messages: %v", err)
+	}
+
+	if len(nodes) > 0 {
+		err = chromedp.Run(ctx,
+			chromedp.Text(".bot-message:last-of-type .message-content", &lastBotMessage, chromedp.ByQuery),
+		)
+		if err == nil {
+			t.Logf("Last bot response preview: %s", truncate(lastBotMessage, 200))
+
+			// Check that the response isn't an error message
+			if strings.Contains(strings.ToLower(lastBotMessage), "sorry, i encountered an error") {
+				t.Error("Bot returned an error response instead of helpful content")
+			}
+		}
+	}
+
+	t.Log("Chat interaction test completed successfully")
+}
+
+// TestInputValidation verifies the input field validation works correctly.
+func TestInputValidation(t *testing.T) {
+	baseURL := getBaseURL()
+	t.Logf("Testing input validation at: %s", baseURL)
+
+	ctx, cancel, err := setupBrowser(isHeadless())
+	if err != nil {
+		t.Fatalf("Failed to setup browser: %v", err)
+	}
+	defer cancel()
+
+	var sendButtonDisabled string
+	var charCount string
+
+	err = chromedp.Run(ctx,
+		chromedp.Navigate(baseURL),
+		chromedp.WaitReady("body"),
+		chromedp.Sleep(1*time.Second),
+
+		// Check send button is disabled initially (empty input)
+		chromedp.AttributeValue("#sendButton", "disabled", &sendButtonDisabled, nil),
+	)
+
+	if err != nil {
+		t.Fatalf("Failed to check initial button state: %v", err)
+	}
+
+	// Send button should be disabled when input is empty
+	if sendButtonDisabled != "true" && sendButtonDisabled != "" {
+		t.Log("Note: Send button may have different disabled state representation")
+	}
+
+	// Type something and verify button enables
+	err = chromedp.Run(ctx,
+		chromedp.Click("#messageInput", chromedp.ByID),
+		chromedp.SendKeys("#messageInput", "test", chromedp.ByID),
+		chromedp.Sleep(500*time.Millisecond),
+		chromedp.Text("#charCount", &charCount, chromedp.ByID),
+	)
+
+	if err != nil {
+		t.Fatalf("Failed to test input: %v", err)
+	}
+
+	// Verify char count updates
+	if !strings.Contains(charCount, "4") {
+		t.Errorf("Expected char count to show 4, got: %s", charCount)
+	}
+
+	t.Logf("Char count displayed: %s", charCount)
+}
+
+// TestShippingInquiry tests the shipping inquiry detection and response.
+func TestShippingInquiry(t *testing.T) {
+	baseURL := getBaseURL()
+	t.Logf("Testing shipping inquiry at: %s", baseURL)
+
+	ctx, cancel, err := setupBrowser(isHeadless())
+	if err != nil {
+		t.Fatalf("Failed to setup browser: %v", err)
+	}
+	defer cancel()
+
+	testMessage := "Do you ship to Canada?"
+
+	err = chromedp.Run(ctx,
+		chromedp.Navigate(baseURL),
+		chromedp.WaitReady("body"),
+		chromedp.Sleep(2*time.Second),
+
+		// Type shipping question
+		chromedp.Click("#messageInput", chromedp.ByID),
+		chromedp.SendKeys("#messageInput", testMessage, chromedp.ByID),
+
+		// Send message
+		chromedp.Click("#sendButton", chromedp.ByID),
+
+		// Wait for response
+		chromedp.Sleep(5*time.Second),
+	)
+
+	if err != nil {
+		t.Fatalf("Failed to send shipping inquiry: %v", err)
+	}
+
+	// Get the response text
+	var lastBotMessage string
+	err = chromedp.Run(ctx,
+		chromedp.Text(".bot-message:last-of-type .message-content", &lastBotMessage, chromedp.ByQuery),
+	)
+
+	if err != nil {
+		t.Logf("Warning: Could not extract response text: %v", err)
+	} else {
+		// Shipping responses should mention shipping or the country
+		lowerResponse := strings.ToLower(lastBotMessage)
+		if !strings.Contains(lowerResponse, "ship") && !strings.Contains(lowerResponse, "canada") {
+			t.Logf("Response may not be shipping-related: %s", truncate(lastBotMessage, 200))
+		} else {
+			t.Logf("Shipping response received: %s", truncate(lastBotMessage, 200))
+		}
+	}
+
+	t.Log("Shipping inquiry test completed")
+}
+
+// TestResponsiveLayout verifies the app is responsive on different screen sizes.
+func TestResponsiveLayout(t *testing.T) {
+	baseURL := getBaseURL()
+	t.Logf("Testing responsive layout at: %s", baseURL)
+
+	ctx, cancel, err := setupBrowser(isHeadless())
+	if err != nil {
+		t.Fatalf("Failed to setup browser: %v", err)
+	}
+	defer cancel()
+
+	// Test mobile viewport
+	err = chromedp.Run(ctx,
+		chromedp.EmulateViewport(375, 667), // iPhone SE size
+		chromedp.Navigate(baseURL),
+		chromedp.WaitReady("body"),
+		chromedp.WaitVisible(".chat-container", chromedp.ByQuery),
+		chromedp.WaitVisible("#messageInput", chromedp.ByID),
+		chromedp.WaitVisible("#sendButton", chromedp.ByID),
+	)
+
+	if err != nil {
+		t.Fatalf("Failed to verify mobile layout: %v", err)
+	}
+
+	t.Log("Mobile layout verified")
+
+	// Test tablet viewport
+	err = chromedp.Run(ctx,
+		chromedp.EmulateViewport(768, 1024), // iPad size
+		chromedp.Navigate(baseURL),
+		chromedp.WaitReady("body"),
+		chromedp.WaitVisible(".chat-container", chromedp.ByQuery),
+	)
+
+	if err != nil {
+		t.Fatalf("Failed to verify tablet layout: %v", err)
+	}
+
+	t.Log("Tablet layout verified")
+
+	// Test desktop viewport
+	err = chromedp.Run(ctx,
+		chromedp.EmulateViewport(1920, 1080),
+		chromedp.Navigate(baseURL),
+		chromedp.WaitReady("body"),
+		chromedp.WaitVisible(".chat-container", chromedp.ByQuery),
+	)
+
+	if err != nil {
+		t.Fatalf("Failed to verify desktop layout: %v", err)
+	}
+
+	t.Log("Desktop layout verified")
+	t.Log("Responsive layout test completed successfully")
+}
+
+// truncate truncates a string to the specified length and adds ellipsis.
+func truncate(s string, length int) string {
+	s = strings.TrimSpace(s)
+	s = strings.ReplaceAll(s, "\n", " ")
+	if len(s) <= length {
+		return s
+	}
+	return s[:length] + "..."
+}

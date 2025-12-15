@@ -1,0 +1,93 @@
+name: E2E Tests
+
+on:
+  # Manual trigger with inputs
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'Base URL to test against'
+        required: false
+        default: 'https://ids.jshipster.io'
+        type: string
+      run_full_suite:
+        description: 'Run full test suite (slower, more comprehensive)'
+        required: false
+        default: false
+        type: boolean
+
+# Limit concurrent E2E runs
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-tests:
+    name: E2E Browser Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: 'stable'
+
+      - name: Install dependencies
+        run: |
+          go mod download
+          # Ensure chromedp is available
+          go get -v github.com/chromedp/chromedp
+
+      - name: Verify Chrome installation
+        run: |
+          google-chrome --version || chromium-browser --version || chrome --version
+
+      - name: Run E2E Tests
+        env:
+          E2E_BASE_URL: ${{ inputs.base_url || 'https://ids.jshipster.io' }}
+          E2E_HEADLESS: 'true'
+        run: |
+          echo "Running E2E tests against: $E2E_BASE_URL"
+          if [ "${{ inputs.run_full_suite }}" = "true" ]; then
+            echo "Running full test suite..."
+            go test -v -timeout 10m ./e2e/...
+          else
+            echo "Running quick test suite..."
+            go test -v -timeout 5m -run "TestAppLoads|TestConnectionStatus|TestChatInteraction" ./e2e/...
+          fi
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-logs
+          path: |
+            *.log
+            /tmp/chromedp-*
+          retention-days: 7
+
+  notify-on-failure:
+    name: Notify on Failure
+    runs-on: ubuntu-latest
+    needs: e2e-tests
+    if: failure()
+
+    steps:
+      - name: Create failure summary
+        run: |
+          echo "## E2E Test Failure :x:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "E2E tests failed against: ${{ inputs.base_url || 'https://ids.jshipster.io' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
+
