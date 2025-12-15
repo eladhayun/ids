@@ -14,9 +14,8 @@ import (
 	"ids/internal/config"
 	"ids/internal/database"
 	"ids/internal/models"
+	idsopenai "ids/internal/openai"
 	"ids/internal/utils"
-
-	"github.com/sashabaranov/go-openai"
 )
 
 const (
@@ -72,26 +71,29 @@ const (
 
 // WriteEmbeddingService handles vector embeddings with write access
 type WriteEmbeddingService struct {
-	client  *openai.Client
+	client  *idsopenai.Client     // Unified client with Azure/OpenAI fallback
 	readDB  *sql.DB               // Remote MySQL for reading products
 	writeDB *database.WriteClient // Local PostgreSQL for writing embeddings
 }
 
 // NewWriteEmbeddingService creates a new write-enabled embedding service
 func NewWriteEmbeddingService(cfg *config.Config, readDB *sql.DB, writeClient *database.WriteClient) (*WriteEmbeddingService, error) {
-	client := openai.NewClient(cfg.OpenAIKey)
+	// Create unified client with Azure OpenAI (primary) and OpenAI (fallback)
+	client, err := idsopenai.NewClient(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OpenAI client: %v", err)
+	}
 
 	// Test the connection
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
-		Input: []string{"test"},
-		Model: openai.SmallEmbedding3,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to OpenAI API: %v", err)
+	if err := client.TestConnection(ctx); err != nil {
+		return nil, err
 	}
+
+	fmt.Printf("[WRITE_EMBEDDING_SERVICE] Using %s for embeddings (model: %s)\n",
+		client.GetProviderName(), client.GetEmbeddingModel())
 
 	return &WriteEmbeddingService{
 		client:  client,
@@ -547,25 +549,22 @@ func (wes *WriteEmbeddingService) CreateEmbeddingsTable() error {
 func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int) ([]ProductEmbedding, error) {
 	fmt.Printf("[WRITE_VECTOR_SEARCH] Starting search for query: '%s' with limit: %d\n", query, limit)
 
-	// Generate embedding for the query
+	// Generate embedding for the query using unified client
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	fmt.Printf("[WRITE_VECTOR_SEARCH] Generating query embedding...\n")
-	resp, err := wes.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
-		Input: []string{query},
-		Model: openai.SmallEmbedding3,
-	})
+	fmt.Printf("[WRITE_VECTOR_SEARCH] Generating query embedding via %s...\n", wes.client.GetProviderName())
+	embeddings, err := wes.client.CreateEmbeddings(ctx, []string{query})
 	if err != nil {
 		fmt.Printf("[WRITE_VECTOR_SEARCH] ERROR: Failed to generate query embedding: %v\n", err)
 		return nil, fmt.Errorf("failed to generate query embedding: %v", err)
 	}
 
-	fmt.Printf("[WRITE_VECTOR_SEARCH] Query embedding generated successfully (dimensions: %d)\n", len(resp.Data[0].Embedding))
+	fmt.Printf("[WRITE_VECTOR_SEARCH] Query embedding generated successfully (dimensions: %d)\n", len(embeddings[0]))
 
 	// Convert []float32 to []float64
-	queryEmbedding := make([]float64, len(resp.Data[0].Embedding))
-	for j, v := range resp.Data[0].Embedding {
+	queryEmbedding := make([]float64, len(embeddings[0]))
+	for j, v := range embeddings[0] {
 		queryEmbedding[j] = float64(v)
 	}
 

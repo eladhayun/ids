@@ -14,6 +14,7 @@ import (
 	"ids/internal/emails"
 	"ids/internal/embeddings"
 	"ids/internal/models"
+	idsopenai "ids/internal/openai"
 	"ids/internal/utils"
 
 	"github.com/jmoiron/sqlx"
@@ -187,22 +188,25 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embeddingS
 			fallbackToSimilarity,
 		)
 
-		// Create OpenAI client and get response
-		client := openai.NewClient(cfg.OpenAIKey)
+		// Create unified OpenAI client (Azure primary, OpenAI fallback) and get response
+		client, err := idsopenai.NewClient(cfg)
+		if err != nil {
+			fmt.Printf("[CHAT] ERROR: Failed to create OpenAI client: %v\n", err)
+			return c.JSON(http.StatusInternalServerError, models.ChatResponse{
+				Error: fmt.Sprintf("Failed to create OpenAI client: %v", err),
+			})
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.OpenAITimeout)*time.Second)
 		defer cancel()
 
-		resp, err := client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-			Model:       openai.GPT4oMini,
-			Messages:    messages,
-			MaxTokens:   1500, // Increased for richer context
-			Temperature: 0.7,
-		})
+		fmt.Printf("[CHAT] Sending chat request to %s...\n", client.GetProviderName())
+		resp, err := client.CreateChatCompletion(ctx, messages, 1500, 0.7)
 
 		if err != nil {
-			fmt.Printf("[CHAT] ERROR: OpenAI API error: %v\n", err)
+			fmt.Printf("[CHAT] ERROR: %s API error: %v\n", client.GetProviderName(), err)
 			return c.JSON(http.StatusInternalServerError, models.ChatResponse{
-				Error: fmt.Sprintf("OpenAI API error: %v", err),
+				Error: fmt.Sprintf("%s API error: %v", client.GetProviderName(), err),
 			})
 		}
 

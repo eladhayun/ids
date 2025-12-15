@@ -12,15 +12,15 @@ import (
 	"ids/internal/config"
 	"ids/internal/database"
 	"ids/internal/models"
+	idsopenai "ids/internal/openai"
 	"ids/internal/utils"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/sashabaranov/go-openai"
 )
 
 // EmbeddingService handles vector embeddings for products
 type EmbeddingService struct {
-	client      *openai.Client
+	client      *idsopenai.Client     // Unified client with Azure/OpenAI fallback
 	db          *sqlx.DB              // MariaDB - only for reading product data when generating embeddings
 	writeClient *database.WriteClient // PostgreSQL - for searching embeddings
 	tagTokenSet map[string]struct{}
@@ -37,19 +37,22 @@ type ProductEmbedding struct {
 // db: MariaDB connection (only for reading product data when generating embeddings)
 // writeClient: PostgreSQL connection (for searching embeddings)
 func NewEmbeddingService(cfg *config.Config, db *sqlx.DB, writeClient *database.WriteClient) (*EmbeddingService, error) {
-	client := openai.NewClient(cfg.OpenAIKey)
+	// Create unified client with Azure OpenAI (primary) and OpenAI (fallback)
+	client, err := idsopenai.NewClient(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OpenAI client: %v", err)
+	}
 
 	// Test the connection
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
-		Input: []string{"test"},
-		Model: openai.SmallEmbedding3,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to OpenAI API: %v", err)
+	if err := client.TestConnection(ctx); err != nil {
+		return nil, err
 	}
+
+	fmt.Printf("[EMBEDDING_SERVICE] Using %s for embeddings (model: %s)\n",
+		client.GetProviderName(), client.GetEmbeddingModel())
 
 	service := &EmbeddingService{
 		client:      client,
@@ -174,7 +177,7 @@ func (es *EmbeddingService) GenerateProductEmbeddings() error {
 // processBatchCommon is a shared helper for processing batches of products
 func processBatchCommon(
 	products []models.Product,
-	client *openai.Client,
+	client *idsopenai.Client,
 	buildText func(models.Product) string,
 	storeEmbedding func(models.Product, []float64) error,
 	logPrefix string,
@@ -188,29 +191,26 @@ func processBatchCommon(
 		texts[i] = buildText(product)
 	}
 
-	// Generate embeddings
-	fmt.Printf("[%s] Sending batch to OpenAI API...\n", logPrefix)
+	// Generate embeddings using unified client (Azure/OpenAI with fallback)
+	fmt.Printf("[%s] Sending batch to %s API...\n", logPrefix, client.GetProviderName())
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	resp, err := client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
-		Input: texts,
-		Model: openai.SmallEmbedding3,
-	})
+	embeddings, err := client.CreateEmbeddings(ctx, texts)
 	if err != nil {
 		fmt.Printf("[%s] ERROR: Failed to generate embeddings: %v\n", logPrefix, err)
 		return fmt.Errorf("failed to generate embeddings: %v", err)
 	}
 
-	fmt.Printf("[%s] Received %d embeddings from OpenAI\n", logPrefix, len(resp.Data))
+	fmt.Printf("[%s] Received %d embeddings from %s\n", logPrefix, len(embeddings), client.GetProviderName())
 
 	// Store embeddings in database
 	fmt.Printf("[%s] Storing embeddings in database...\n", logPrefix)
-	for i, embeddingData := range resp.Data {
+	for i, embeddingData := range embeddings {
 		product := products[i]
 		// Convert []float32 to []float64
-		embedding := make([]float64, len(embeddingData.Embedding))
-		for j, v := range embeddingData.Embedding {
+		embedding := make([]float64, len(embeddingData))
+		for j, v := range embeddingData {
 			embedding[j] = float64(v)
 		}
 		if err := storeEmbedding(product, embedding); err != nil {
@@ -219,7 +219,7 @@ func processBatchCommon(
 		}
 	}
 
-	fmt.Printf("[%s] Successfully stored %d embeddings\n", logPrefix, len(resp.Data))
+	fmt.Printf("[%s] Successfully stored %d embeddings\n", logPrefix, len(embeddings))
 	return nil
 }
 
@@ -312,25 +312,22 @@ func (es *EmbeddingService) storeEmbedding(product models.Product, embedding []f
 func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]ProductEmbedding, bool, error) {
 	fmt.Printf("[PRODUCT_EMBEDDINGS] 🔍 Querying PRODUCT EMBEDDINGS datasource - Query: '%s', Limit: %d\n", query, limit)
 
-	// Generate embedding for the query
+	// Generate embedding for the query using unified client
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	fmt.Printf("[VECTOR_SEARCH] Generating query embedding...\n")
-	resp, err := es.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
-		Input: []string{query},
-		Model: openai.SmallEmbedding3,
-	})
+	fmt.Printf("[VECTOR_SEARCH] Generating query embedding via %s...\n", es.client.GetProviderName())
+	embeddings, err := es.client.CreateEmbeddings(ctx, []string{query})
 	if err != nil {
 		fmt.Printf("[VECTOR_SEARCH] ERROR: Failed to generate query embedding: %v\n", err)
 		return nil, false, fmt.Errorf("failed to generate query embedding: %v", err)
 	}
 
-	fmt.Printf("[VECTOR_SEARCH] Query embedding generated successfully (dimensions: %d)\n", len(resp.Data[0].Embedding))
+	fmt.Printf("[VECTOR_SEARCH] Query embedding generated successfully (dimensions: %d)\n", len(embeddings[0]))
 
 	// Convert []float32 to []float64
-	queryEmbedding := make([]float64, len(resp.Data[0].Embedding))
-	for j, v := range resp.Data[0].Embedding {
+	queryEmbedding := make([]float64, len(embeddings[0]))
+	for j, v := range embeddings[0] {
 		queryEmbedding[j] = float64(v)
 	}
 

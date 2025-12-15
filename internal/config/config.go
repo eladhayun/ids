@@ -24,6 +24,12 @@ type Config struct {
 	EnableEmailContext     bool   // Whether to include email history in chat responses
 	SendGridAPIKey         string // SendGrid API key for sending support escalation emails
 	SupportEmail           string // Support email address (default: support@israeldefensestore.com)
+
+	// Azure OpenAI Configuration (primary provider - falls back to OpenAI if not configured)
+	AzureOpenAIEndpoint            string // Azure OpenAI endpoint (e.g., https://xxx.openai.azure.com/)
+	AzureOpenAIKey                 string // Azure OpenAI API key
+	AzureOpenAIGPTDeployment       string // Deployment name for GPT model (e.g., gpt-4o-mini)
+	AzureOpenAIEmbeddingDeployment string // Deployment name for embedding model (e.g., text-embedding-3-small)
 }
 
 // Load initializes and returns application configuration
@@ -46,6 +52,12 @@ func Load() *Config {
 		EnableEmailContext:     getEnvBool("ENABLE_EMAIL_CONTEXT", true),                  // Default true to use email history
 		SendGridAPIKey:         os.Getenv("SENDGRID_API_KEY"),                             // SendGrid API key for support emails
 		SupportEmail:           getEnv("SUPPORT_EMAIL", "support@israeldefensestore.com"), // Support email address
+
+		// Azure OpenAI (primary) - falls back to OpenAI if not configured
+		AzureOpenAIEndpoint:            os.Getenv("AZURE_OPENAI_ENDPOINT"),
+		AzureOpenAIKey:                 os.Getenv("AZURE_OPENAI_KEY"),
+		AzureOpenAIGPTDeployment:       getEnv("AZURE_OPENAI_GPT_DEPLOYMENT", "gpt-4o-mini"),
+		AzureOpenAIEmbeddingDeployment: getEnv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-small"),
 	}
 
 	return config
@@ -77,6 +89,16 @@ func getEnvBool(key string, defaultValue bool) bool {
 		}
 	}
 	return defaultValue
+}
+
+// UseAzureOpenAI returns true if Azure OpenAI is properly configured
+func (c *Config) UseAzureOpenAI() bool {
+	return c.AzureOpenAIEndpoint != "" && c.AzureOpenAIKey != ""
+}
+
+// HasOpenAIFallback returns true if regular OpenAI API key is configured as fallback
+func (c *Config) HasOpenAIFallback() bool {
+	return c.OpenAIKey != ""
 }
 
 // SetupLogger configures zerolog with JSON output and single-line format
