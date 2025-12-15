@@ -211,26 +211,75 @@ fi`,
 		},
 		Containers: []corev1.Container{
 			{
-				Name:  "verify-download",
-				Image: "alpine:latest",
+				Name:  "process-emails",
+				Image: containerImage,
 				Command: []string{
 					"/bin/sh",
 					"-c",
 					`set -e
-echo "===== Verifying Downloaded Emails ====="
+echo ""
+echo "==========================================="
+echo "  EMAIL PROCESSING - END TO END"
+echo "==========================================="
+echo "Started: $(date '+%Y-%m-%d %H:%M:%S')"
+echo ""
 
-# Count files
+# Count downloaded files
 eml_count=$(find /emails -name "*.eml" -type f 2>/dev/null | wc -l | tr -d ' ')
 mbox_count=$(find /emails -name "*.mbox" -type f 2>/dev/null | wc -l | tr -d ' ')
 total_size=$(du -hs /emails 2>/dev/null | cut -f1 || echo "0")
 
-echo "Download verified:"
+echo "===== Downloaded Files ====="
 echo "  - EML files: $eml_count"
 echo "  - MBOX files: $mbox_count"
 echo "  - Total size: $total_size"
 echo ""
-echo "✅ Files ready for backend processing"
-echo "The IDS backend will automatically import these emails."`,
+
+# Run email import
+echo "===== Step 1/3: Importing Emails to Database ====="
+/home/appuser/import-emails --eml-path /emails --mbox-path /emails
+
+echo ""
+echo "===== Step 2/3: Generating Email Embeddings ====="
+# Email embeddings are generated during import
+echo "✓ Email embeddings generated"
+
+echo ""
+echo "===== Step 3/3: Generating Thread Embeddings ====="
+# Thread embeddings are generated during import
+echo "✓ Thread embeddings generated"
+
+echo ""
+echo "==========================================="
+echo "  PROCESSING COMPLETE"
+echo "==========================================="
+echo "Finished: $(date '+%Y-%m-%d %H:%M:%S')"
+echo "✅ All emails imported and embedded successfully"
+echo "==========================================="`,
+				},
+				Env: []corev1.EnvVar{
+					{
+						Name: "EMBEDDINGS_DATABASE_URL",
+						ValueFrom: &corev1.EnvVarSource{
+							SecretKeyRef: &corev1.SecretKeySelector{
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: "ids-postgres-secret",
+								},
+								Key: "DATABASE_URL",
+							},
+						},
+					},
+					{
+						Name: "OPENAI_API_KEY",
+						ValueFrom: &corev1.EnvVarSource{
+							SecretKeyRef: &corev1.SecretKeySelector{
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: "ids-secrets",
+								},
+								Key: "OPENAI_API_KEY",
+							},
+						},
+					},
 				},
 				VolumeMounts: []corev1.VolumeMount{
 					{
@@ -240,12 +289,12 @@ echo "The IDS backend will automatically import these emails."`,
 				},
 				Resources: corev1.ResourceRequirements{
 					Requests: corev1.ResourceList{
-						corev1.ResourceMemory: resourceQuantity("64Mi"),
-						corev1.ResourceCPU:    resourceQuantity("50m"),
+						corev1.ResourceMemory: resourceQuantity("1Gi"),
+						corev1.ResourceCPU:    resourceQuantity("500m"),
 					},
 					Limits: corev1.ResourceList{
-						corev1.ResourceMemory: resourceQuantity("128Mi"),
-						corev1.ResourceCPU:    resourceQuantity("100m"),
+						corev1.ResourceMemory: resourceQuantity("4Gi"),
+						corev1.ResourceCPU:    resourceQuantity("2000m"),
 					},
 				},
 			},
@@ -254,9 +303,7 @@ echo "The IDS backend will automatically import these emails."`,
 			{
 				Name: "email-data",
 				VolumeSource: corev1.VolumeSource{
-					PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-						ClaimName: "email-data-pvc",
-					},
+					EmptyDir: &corev1.EmptyDirVolumeSource{},
 				},
 			},
 		},
