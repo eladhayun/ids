@@ -1,6 +1,11 @@
+//go:build e2e
+
 // Package e2e provides end-to-end browser tests for the IDS application.
 // These tests use chromedp to automate browser interactions and verify
 // core functionality works as expected.
+// These tests require the "e2e" build tag to run:
+//
+//	go test -tags=e2e ./e2e/...
 package e2e
 
 import (
