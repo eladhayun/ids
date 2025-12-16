@@ -10,6 +10,11 @@ import (
 	"github.com/sendgrid/sendgrid-go/helpers/mail"
 )
 
+const (
+	roleUser      = "User"
+	roleAssistant = "Assistant"
+)
+
 // EmailService handles sending emails via SendGrid
 type EmailService struct {
 	apiKey       string
@@ -234,7 +239,7 @@ func formatConversationHTML(conversation string) string {
 		// Convert newlines to <br> for HTML
 		escapedMsg = strings.ReplaceAll(escapedMsg, "\n", "<br>")
 
-		if currentRole == "User" {
+		if currentRole == roleUser {
 			result.WriteString(fmt.Sprintf(`
                 <div style="margin-bottom: 15px;">
                     <div style="display: flex; align-items: center; margin-bottom: 5px;">
@@ -271,10 +276,10 @@ func formatConversationHTML(conversation string) string {
 		// Check for message headers like "[Message 1] User:"
 		if strings.HasPrefix(line, "[Message") {
 			flushMessage()
-			if strings.Contains(line, "User:") {
-				currentRole = "User"
-			} else if strings.Contains(line, "Assistant:") {
-				currentRole = "Assistant"
+			if strings.Contains(line, roleUser+":") {
+				currentRole = roleUser
+			} else if strings.Contains(line, roleAssistant+":") {
+				currentRole = roleAssistant
 			}
 			continue
 		}
