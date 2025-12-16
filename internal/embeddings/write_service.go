@@ -5,9 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -47,11 +45,12 @@ const (
 		ORDER BY p.ID
 	`
 
-	// queryProductEmbeddings fetches product embeddings with metadata from PostgreSQL
-	queryProductEmbeddings = `
+	// queryProductEmbeddingsPgvector fetches product embeddings with similarity using pgvector
+	// The $1 parameter is the query vector, $2 is the limit
+	queryProductEmbeddingsPgvector = `
 		SELECT
 			product_id,
-			embedding,
+			embedding::text,
 			COALESCE(post_title, '') as post_title,
 			post_name,
 			description,
@@ -61,9 +60,12 @@ const (
 			max_price,
 			stock_status,
 			stock_quantity,
-			tags
+			tags,
+			1 - (embedding <=> $1::vector) AS similarity
 		FROM product_embeddings
 		WHERE post_title IS NOT NULL AND post_title != ''
+		ORDER BY embedding <=> $1::vector
+		LIMIT $2
 	`
 
 	stockStatusUnknown = "unknown"
@@ -410,13 +412,10 @@ func (wes *WriteEmbeddingService) buildProductText(product models.Product) strin
 	return text
 }
 
-// storeEmbedding stores a product embedding with metadata in PostgreSQL
+// storeEmbedding stores a product embedding with metadata in PostgreSQL using pgvector
 func (wes *WriteEmbeddingService) storeEmbedding(product models.Product, embedding []float64) error {
-	// Convert embedding to JSON
-	embeddingJSON, err := json.Marshal(embedding)
-	if err != nil {
-		return fmt.Errorf("failed to marshal embedding: %v", err)
-	}
+	// Convert embedding to pgvector format
+	embeddingStr := FormatVectorForPgvector(embedding)
 
 	// Store in PostgreSQL with product metadata (denormalized for search performance)
 	// This allows searching without querying MariaDB
@@ -427,7 +426,7 @@ func (wes *WriteEmbeddingService) storeEmbedding(product models.Product, embeddi
 			sku, min_price, max_price, stock_status, stock_quantity, tags,
 			created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		VALUES ($1, $2::vector, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 		ON CONFLICT (product_id) DO UPDATE SET
 			embedding = EXCLUDED.embedding,
 			post_title = EXCLUDED.post_title,
@@ -460,9 +459,9 @@ func (wes *WriteEmbeddingService) storeEmbedding(product models.Product, embeddi
 		stockQuantity = nil
 	}
 
-	_, err = wes.writeDB.ExecuteWriteQuery(query,
+	_, err := wes.writeDB.ExecuteWriteQuery(query,
 		product.ID,
-		string(embeddingJSON),
+		embeddingStr,
 		product.PostTitle,
 		postName,
 		description,
@@ -491,11 +490,17 @@ func getStringValue(ptr *string) interface{} {
 
 // CreateEmbeddingsTable creates the table for storing product embeddings with metadata
 func (wes *WriteEmbeddingService) CreateEmbeddingsTable() error {
+	// Enable pgvector extension first
+	if _, err := wes.writeDB.ExecuteWriteQuery(`CREATE EXTENSION IF NOT EXISTS vector`); err != nil {
+		fmt.Printf("[EMBEDDING_SERVICE] Warning: Failed to create vector extension (may already exist): %v\n", err)
+	}
+
 	// PostgreSQL table with product metadata denormalized for search performance
+	// Using vector(1536) for text-embedding-3-small embeddings
 	query := `
 		CREATE TABLE IF NOT EXISTS product_embeddings (
 			product_id INT PRIMARY KEY,
-			embedding JSONB NOT NULL,
+			embedding vector(1536) NOT NULL,
 			post_title TEXT,
 			post_name TEXT,
 			description TEXT,
@@ -535,6 +540,8 @@ func (wes *WriteEmbeddingService) CreateEmbeddingsTable() error {
 		`CREATE INDEX IF NOT EXISTS idx_product_embeddings_post_title ON product_embeddings(post_title) WHERE post_title IS NOT NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_product_checksums_product_id ON product_checksums(product_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_product_checksums_last_checked ON product_checksums(last_checked)`,
+		// HNSW index for fast cosine similarity search with pgvector
+		`CREATE INDEX IF NOT EXISTS idx_product_embeddings_hnsw ON product_embeddings USING hnsw (embedding vector_cosine_ops)`,
 	}
 	for _, indexQuery := range indexes {
 		if _, err := wes.writeDB.ExecuteWriteQuery(indexQuery); err != nil {
@@ -545,9 +552,9 @@ func (wes *WriteEmbeddingService) CreateEmbeddingsTable() error {
 	return nil
 }
 
-// SearchSimilarProducts finds products similar to the query using vector similarity
+// SearchSimilarProducts finds products similar to the query using pgvector similarity
 func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int) ([]ProductEmbedding, error) {
-	fmt.Printf("[WRITE_VECTOR_SEARCH] Starting search for query: '%s' with limit: %d\n", query, limit)
+	fmt.Printf("[WRITE_VECTOR_SEARCH] Starting pgvector search for query: '%s' with limit: %d\n", query, limit)
 
 	// Generate embedding for the query using unified client
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -562,25 +569,22 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 
 	fmt.Printf("[WRITE_VECTOR_SEARCH] Query embedding generated successfully (dimensions: %d)\n", len(embeddings[0]))
 
-	// Convert []float32 to []float64
-	queryEmbedding := make([]float64, len(embeddings[0]))
-	for j, v := range embeddings[0] {
-		queryEmbedding[j] = float64(v)
+	// Convert query embedding to pgvector format
+	queryVectorStr := FormatFloat32VectorForPgvector(embeddings[0])
+
+	// Use pgvector's <=> operator for cosine distance (database handles similarity calculation)
+	// Fetch more results than requested to allow for term-based filtering
+	fetchLimit := limit * 3
+	if fetchLimit < 50 {
+		fetchLimit = 50
 	}
 
-	// Extract meaningful tokens from query for term matching
-	queryTokens := utils.ExtractMeaningfulTokens(query)
-	queryTokens = wes.expandSynonyms(queryTokens)
+	fmt.Printf("[WRITE_VECTOR_SEARCH] Executing pgvector query with HNSW index...\n")
 
-	// Get all product embeddings from PostgreSQL only (no MariaDB joins)
-	// Product metadata is stored denormalized in the product_embeddings table
-	fmt.Printf("[WRITE_VECTOR_SEARCH] Fetching product embeddings from PostgreSQL (no MariaDB access)...\n")
-
-	// We need to manually scan the results since we have a JSON field
-	rows, err := wes.writeDB.GetDB().QueryContext(ctx, queryProductEmbeddings)
+	rows, err := wes.writeDB.GetDB().QueryContext(ctx, queryProductEmbeddingsPgvector, queryVectorStr, fetchLimit)
 	if err != nil {
-		fmt.Printf("[WRITE_VECTOR_SEARCH] ERROR: Failed to fetch product embeddings: %v\n", err)
-		return nil, fmt.Errorf("failed to fetch product embeddings: %v", err)
+		fmt.Printf("[WRITE_VECTOR_SEARCH] ERROR: Failed to execute pgvector query: %v\n", err)
+		return nil, fmt.Errorf("failed to execute pgvector query: %v", err)
 	}
 	defer func() {
 		if err := rows.Close(); err != nil {
@@ -588,68 +592,14 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 		}
 	}()
 
-	var results []ProductEmbedding
-	for rows.Next() {
-		var productID int
-		var embeddingJSON string
-		var product models.Product
-
-		// Use sql.NullString for nullable fields
-		var postName, description, shortDescription, sku, minPrice, maxPrice, stockStatus, tags sql.NullString
-		var stockQuantity sql.NullFloat64
-
-		err := rows.Scan(
-			&productID,
-			&embeddingJSON,
-			&product.PostTitle,
-			&postName,
-			&description,
-			&shortDescription,
-			&sku,
-			&minPrice,
-			&maxPrice,
-			&stockStatus,
-			&stockQuantity,
-			&tags,
-		)
-
-		if err != nil {
-			continue // Skip invalid rows
-		}
-
-		// Convert nullable fields to pointers
-		product = convertNullableFieldsToProduct(product, postName, description, shortDescription, sku, minPrice, maxPrice, stockStatus, tags, stockQuantity)
-
-		// Parse the embedding JSON
-		var embedding []float64
-		if err := json.Unmarshal([]byte(embeddingJSON), &embedding); err != nil {
-			continue // Skip invalid embeddings
-		}
-
-		// Calculate cosine similarity
-		similarity := wes.cosineSimilarity(queryEmbedding, embedding)
-
-		product.ID = productID
-		results = append(results, ProductEmbedding{
-			Product:    product,
-			Embedding:  embedding,
-			Similarity: similarity,
-		})
-	}
+	results := ScanProductEmbeddingRows(rows, "WRITE_VECTOR_SEARCH")
 
 	if err = rows.Err(); err != nil {
 		fmt.Printf("[WRITE_VECTOR_SEARCH] ERROR: Error iterating product embedding rows: %v\n", err)
 		return nil, fmt.Errorf("error iterating product embedding rows: %v", err)
 	}
 
-	fmt.Printf("[WRITE_VECTOR_SEARCH] Processed %d products\n", len(results))
-
-	// Calculate similarities and sort
-	applySimilarityBoosting(results, queryEmbedding, query, queryTokens, wes.cosineSimilarity)
-
-	// Sort by similarity (highest first)
-	fmt.Printf("[WRITE_VECTOR_SEARCH] Sorting %d results by similarity...\n", len(results))
-	sortBySimilarity(results)
+	fmt.Printf("[WRITE_VECTOR_SEARCH] pgvector returned %d products (already sorted by similarity)\n", len(results))
 
 	// Log top 5 results for debugging
 	if len(results) > 0 {
@@ -664,6 +614,11 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 		}
 	}
 
+	// Apply term-based filtering for better relevance
+	queryTokens := utils.ExtractMeaningfulTokens(query)
+	queryTokens = wes.expandSynonyms(queryTokens)
+	applyTermBoostingPgvector(&results, query, queryTokens)
+
 	// Return top results
 	if limit > 0 && limit < len(results) {
 		fmt.Printf("[WRITE_VECTOR_SEARCH] Limiting results to top %d (from %d total)\n", limit, len(results))
@@ -672,6 +627,17 @@ func (wes *WriteEmbeddingService) SearchSimilarProducts(query string, limit int)
 
 	fmt.Printf("[WRITE_VECTOR_SEARCH] Returning %d products\n", len(results))
 	return results, nil
+}
+
+// applyTermBoostingPgvector applies term-based boosting to pgvector results
+func applyTermBoostingPgvector(results *[]ProductEmbedding, query string, queryTokens []string) {
+	for i := range *results {
+		boost := calculateBoost((*results)[i].Product, query, queryTokens)
+		(*results)[i].Similarity += boost
+	}
+
+	// Re-sort after boosting
+	sortBySimilarity(*results)
 }
 
 // convertNullableFieldsToProduct converts sql.NullString and sql.NullFloat64 to product pointers
@@ -708,21 +674,6 @@ func convertNullableFieldsToProduct(
 		product.Tags = &tags.String
 	}
 	return product
-}
-
-// applySimilarityBoosting applies term-based boosting to similarity scores
-func applySimilarityBoosting(
-	results []ProductEmbedding,
-	queryEmbedding []float64,
-	query string,
-	queryTokens []string,
-	cosineSimilarity func([]float64, []float64) float64,
-) {
-	for i := range results {
-		baseSimilarity := cosineSimilarity(queryEmbedding, results[i].Embedding)
-		boost := calculateBoost(results[i].Product, query, queryTokens)
-		results[i].Similarity = baseSimilarity + boost
-	}
 }
 
 // calculateBoost calculates the boost value based on term matching
@@ -787,26 +738,6 @@ func sortBySimilarity(results []ProductEmbedding) {
 			}
 		}
 	}
-}
-
-// cosineSimilarity calculates cosine similarity between two vectors
-func (wes *WriteEmbeddingService) cosineSimilarity(a, b []float64) float64 {
-	if len(a) != len(b) {
-		return 0
-	}
-
-	var dotProduct, normA, normB float64
-	for i := range a {
-		dotProduct += a[i] * b[i]
-		normA += a[i] * a[i]
-		normB += b[i] * b[i]
-	}
-
-	if normA == 0 || normB == 0 {
-		return 0
-	}
-
-	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
 // expandSynonyms adds synonyms to the token list

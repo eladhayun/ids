@@ -2,9 +2,7 @@ package emails
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -51,8 +49,13 @@ func NewEmailEmbeddingService(cfg *config.Config, writeClient *database.WriteCli
 	}, nil
 }
 
-// CreateEmailTables creates the necessary database tables (PostgreSQL-compatible)
+// CreateEmailTables creates the necessary database tables (PostgreSQL-compatible with pgvector)
 func (ees *EmailEmbeddingService) CreateEmailTables() error {
+	// Enable pgvector extension first
+	if _, err := ees.db.ExecuteWriteQuery(`CREATE EXTENSION IF NOT EXISTS vector`); err != nil {
+		fmt.Printf("Warning: Failed to create vector extension (may already exist): %v\n", err)
+	}
+
 	queries := []string{
 		// Emails table
 		`CREATE TABLE IF NOT EXISTS emails (
@@ -83,12 +86,12 @@ func (ees *EmailEmbeddingService) CreateEmailTables() error {
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		)`,
 
-		// Email embeddings table
+		// Email embeddings table - using pgvector for 1536-dimensional embeddings
 		`CREATE TABLE IF NOT EXISTS email_embeddings (
 			id SERIAL PRIMARY KEY,
 			email_id INT,
 			thread_id VARCHAR(255),
-			embedding JSONB NOT NULL,
+			embedding vector(1536) NOT NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE (email_id),
@@ -111,6 +114,8 @@ func (ees *EmailEmbeddingService) CreateEmailTables() error {
 		`CREATE INDEX IF NOT EXISTS idx_emails_is_customer ON emails(is_customer)`,
 		`CREATE INDEX IF NOT EXISTS idx_email_threads_first_date ON email_threads(first_date)`,
 		`CREATE INDEX IF NOT EXISTS idx_email_threads_last_date ON email_threads(last_date)`,
+		// HNSW index for fast cosine similarity search with pgvector
+		`CREATE INDEX IF NOT EXISTS idx_email_embeddings_hnsw ON email_embeddings USING hnsw (embedding vector_cosine_ops)`,
 	}
 
 	for _, query := range indexes {
@@ -567,12 +572,10 @@ func (ees *EmailEmbeddingService) buildThreadText(emails []models.Email) string 
 	return strings.Join(parts, " | ")
 }
 
-// storeEmailEmbedding stores an embedding for an email or thread
+// storeEmailEmbedding stores an embedding for an email or thread using pgvector
 func (ees *EmailEmbeddingService) storeEmailEmbedding(emailID int, threadID *string, embedding []float64) error {
-	embeddingJSON, err := json.Marshal(embedding)
-	if err != nil {
-		return err
-	}
+	// Convert embedding to pgvector format
+	embeddingStr := formatVectorForPgvector(embedding)
 
 	var query string
 	var args []interface{}
@@ -580,28 +583,46 @@ func (ees *EmailEmbeddingService) storeEmailEmbedding(emailID int, threadID *str
 	if threadID != nil {
 		query = `
 			INSERT INTO email_embeddings (thread_id, embedding)
-			VALUES ($1, $2)
+			VALUES ($1, $2::vector)
 			ON CONFLICT (thread_id) DO UPDATE SET
 				embedding = EXCLUDED.embedding,
 				updated_at = CURRENT_TIMESTAMP
 		`
-		args = []interface{}{*threadID, string(embeddingJSON)}
+		args = []interface{}{*threadID, embeddingStr}
 	} else {
 		query = `
 			INSERT INTO email_embeddings (email_id, embedding)
-			VALUES ($1, $2)
+			VALUES ($1, $2::vector)
 			ON CONFLICT (email_id) DO UPDATE SET
 				embedding = EXCLUDED.embedding,
 				updated_at = CURRENT_TIMESTAMP
 		`
-		args = []interface{}{emailID, string(embeddingJSON)}
+		args = []interface{}{emailID, embeddingStr}
 	}
 
-	_, err = ees.db.ExecuteWriteQuery(query, args...)
+	_, err := ees.db.ExecuteWriteQuery(query, args...)
 	return err
 }
 
-// SearchSimilarEmails finds emails or threads similar to a query
+// formatVectorForPgvector converts a float64 slice to pgvector string format
+func formatVectorForPgvector(embedding []float64) string {
+	parts := make([]string, len(embedding))
+	for i, v := range embedding {
+		parts[i] = fmt.Sprintf("%g", v)
+	}
+	return "[" + strings.Join(parts, ",") + "]"
+}
+
+// formatFloat32VectorForPgvector converts a float32 slice to pgvector string format
+func formatFloat32VectorForPgvector(embedding []float32) string {
+	parts := make([]string, len(embedding))
+	for i, v := range embedding {
+		parts[i] = fmt.Sprintf("%g", v)
+	}
+	return "[" + strings.Join(parts, ",") + "]"
+}
+
+// SearchSimilarEmails finds emails or threads similar to a query using pgvector
 func (ees *EmailEmbeddingService) SearchSimilarEmails(query string, limit int, searchThreads bool) ([]models.EmailSearchResult, error) {
 	searchType := "individual emails"
 	if searchThreads {
@@ -624,19 +645,18 @@ func (ees *EmailEmbeddingService) SearchSimilarEmails(query string, limit int, s
 	}
 	fmt.Printf("[EMAIL_EMBEDDINGS] Query embedding generated (dimensions: %d)\n", len(resp.Data[0].Embedding))
 
-	queryEmbedding := make([]float64, len(resp.Data[0].Embedding))
-	for j, v := range resp.Data[0].Embedding {
-		queryEmbedding[j] = float64(v)
-	}
+	// Convert query embedding to pgvector format
+	queryVectorStr := formatFloat32VectorForPgvector(resp.Data[0].Embedding)
 
-	// Fetch embeddings from database
+	// Use pgvector for similarity search - database calculates similarity
 	var dbQuery string
 	if searchThreads {
 		dbQuery = `
 			SELECT DISTINCT ON (ee.thread_id)
-			       ee.embedding, e.id, e.message_id, e.subject, e.from_addr, e.to_addr, 
+			       ee.embedding::text, e.id, e.message_id, e.subject, e.from_addr, e.to_addr, 
 			       e.date, e.body, e.thread_id, e.is_customer,
-			       et.thread_id, et.subject, et.email_count, et.first_date, et.last_date
+			       et.thread_id, et.subject, et.email_count, et.first_date, et.last_date,
+			       1 - (ee.embedding <=> $1::vector) AS similarity
 			FROM email_embeddings ee
 			JOIN email_threads et ON et.thread_id = ee.thread_id
 			JOIN emails e ON e.thread_id = et.thread_id
@@ -645,90 +665,126 @@ func (ees *EmailEmbeddingService) SearchSimilarEmails(query string, limit int, s
 		`
 	} else {
 		dbQuery = `
-			SELECT ee.embedding, e.id, e.message_id, e.subject, e.from_addr, e.to_addr,
-			       e.date, e.body, e.thread_id, e.is_customer
+			SELECT ee.embedding::text, e.id, e.message_id, e.subject, e.from_addr, e.to_addr,
+			       e.date, e.body, e.thread_id, e.is_customer,
+			       1 - (ee.embedding <=> $1::vector) AS similarity
 			FROM email_embeddings ee
 			JOIN emails e ON e.id = ee.email_id
 			WHERE ee.email_id IS NOT NULL
+			ORDER BY ee.embedding <=> $1::vector
+			LIMIT $2
 		`
 	}
 
-	rows, err := ees.db.GetDB().Query(dbQuery)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if err := rows.Close(); err != nil {
-			fmt.Printf("Warning: Error closing rows: %v\n", err)
-		}
-	}()
+	var rows interface{ Close() error }
+	var scanErr error
 
 	var results []models.EmailSearchResult
 
-	for rows.Next() {
-		var embeddingJSON string
-		var email models.Email
-		var threadID, threadSubject *string
-		var emailCount *int
-		var firstDate, lastDate *time.Time
+	if searchThreads {
+		// Thread search needs post-processing for DISTINCT ON
+		rowsResult, err := ees.db.GetDB().Query(dbQuery, queryVectorStr)
+		if err != nil {
+			return nil, err
+		}
+		rows = rowsResult
+		defer func() {
+			if err := rows.Close(); err != nil {
+				fmt.Printf("Warning: Error closing rows: %v\n", err)
+			}
+		}()
 
-		if searchThreads {
-			err = rows.Scan(
-				&embeddingJSON,
+		for rowsResult.Next() {
+			var embeddingStr string
+			var email models.Email
+			var threadID, threadSubject *string
+			var emailCount *int
+			var firstDate, lastDate *time.Time
+			var similarity float64
+
+			scanErr = rowsResult.Scan(
+				&embeddingStr,
 				&email.ID, &email.MessageID, &email.Subject, &email.From, &email.To,
 				&email.Date, &email.Body, &email.ThreadID, &email.IsCustomer,
 				&threadID, &threadSubject, &emailCount, &firstDate, &lastDate,
+				&similarity,
 			)
-		} else {
-			err = rows.Scan(
-				&embeddingJSON,
+
+			if scanErr != nil {
+				fmt.Printf("[EMAIL_EMBEDDINGS] Warning: Failed to scan row: %v\n", scanErr)
+				continue
+			}
+
+			result := models.EmailSearchResult{
+				Email:      email,
+				Similarity: similarity,
+				Embedding:  nil, // Don't need to store embedding in results
+			}
+
+			if threadID != nil {
+				result.Thread = &models.EmailThread{
+					ThreadID:   *threadID,
+					Subject:    *threadSubject,
+					EmailCount: *emailCount,
+					FirstDate:  *firstDate,
+					LastDate:   *lastDate,
+				}
+			}
+
+			results = append(results, result)
+		}
+
+		// Sort thread results by similarity (needed because DISTINCT ON doesn't preserve ORDER BY)
+		for i := 0; i < len(results)-1; i++ {
+			for j := i + 1; j < len(results); j++ {
+				if results[i].Similarity < results[j].Similarity {
+					results[i], results[j] = results[j], results[i]
+				}
+			}
+		}
+
+		// Limit results
+		if limit > 0 && limit < len(results) {
+			results = results[:limit]
+		}
+	} else {
+		// Individual email search with pgvector ORDER BY
+		rowsResult, err := ees.db.GetDB().Query(dbQuery, queryVectorStr, limit)
+		if err != nil {
+			return nil, err
+		}
+		rows = rowsResult
+		defer func() {
+			if err := rows.Close(); err != nil {
+				fmt.Printf("Warning: Error closing rows: %v\n", err)
+			}
+		}()
+
+		for rowsResult.Next() {
+			var embeddingStr string
+			var email models.Email
+			var similarity float64
+
+			scanErr = rowsResult.Scan(
+				&embeddingStr,
 				&email.ID, &email.MessageID, &email.Subject, &email.From, &email.To,
 				&email.Date, &email.Body, &email.ThreadID, &email.IsCustomer,
+				&similarity,
 			)
-		}
 
-		if err != nil {
-			continue
-		}
-
-		var embedding []float64
-		if err := json.Unmarshal([]byte(embeddingJSON), &embedding); err != nil {
-			continue
-		}
-
-		similarity := cosineSimilarity(queryEmbedding, embedding)
-
-		result := models.EmailSearchResult{
-			Email:      email,
-			Similarity: similarity,
-			Embedding:  embedding,
-		}
-
-		if searchThreads && threadID != nil {
-			result.Thread = &models.EmailThread{
-				ThreadID:   *threadID,
-				Subject:    *threadSubject,
-				EmailCount: *emailCount,
-				FirstDate:  *firstDate,
-				LastDate:   *lastDate,
+			if scanErr != nil {
+				fmt.Printf("[EMAIL_EMBEDDINGS] Warning: Failed to scan row: %v\n", scanErr)
+				continue
 			}
-		}
 
-		results = append(results, result)
-	}
-
-	// Sort by similarity
-	for i := 0; i < len(results)-1; i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[i].Similarity < results[j].Similarity {
-				results[i], results[j] = results[j], results[i]
+			result := models.EmailSearchResult{
+				Email:      email,
+				Similarity: similarity,
+				Embedding:  nil, // Don't need to store embedding in results
 			}
-		}
-	}
 
-	// Limit results
-	if limit > 0 && limit < len(results) {
-		results = results[:limit]
+			results = append(results, result)
+		}
 	}
 
 	fmt.Printf("[EMAIL_EMBEDDINGS] ✅ EMAIL EMBEDDINGS query complete - Returning %d %s\n", len(results), searchType)
@@ -737,24 +793,4 @@ func (ees *EmailEmbeddingService) SearchSimilarEmails(query string, limit int, s
 	}
 
 	return results, nil
-}
-
-// cosineSimilarity calculates cosine similarity between two vectors
-func cosineSimilarity(a, b []float64) float64 {
-	if len(a) != len(b) {
-		return 0
-	}
-
-	var dotProduct, normA, normB float64
-	for i := range a {
-		dotProduct += a[i] * b[i]
-		normA += a[i] * a[i]
-		normB += b[i] * b[i]
-	}
-
-	if normA == 0 || normB == 0 {
-		return 0
-	}
-
-	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
 }

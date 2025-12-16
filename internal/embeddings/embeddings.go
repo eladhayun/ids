@@ -2,10 +2,7 @@ package embeddings
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
 	"fmt"
-	"math"
 	"strings"
 	"time"
 
@@ -280,27 +277,25 @@ func (es *EmbeddingService) buildProductText(product models.Product) string {
 	return strings.Join(parts, " | ")
 }
 
-// storeEmbedding stores a product embedding in the database
+// storeEmbedding stores a product embedding in PostgreSQL using pgvector
 func (es *EmbeddingService) storeEmbedding(product models.Product, embedding []float64) error {
-	// Convert embedding to JSON
-	embeddingJSON, err := json.Marshal(embedding)
-	if err != nil {
-		return fmt.Errorf("failed to marshal embedding: %v", err)
+	if es.writeClient == nil {
+		return fmt.Errorf("PostgreSQL write client not available")
 	}
 
-	// Store in database (we'll create a table for this)
+	// Convert embedding to pgvector format
+	embeddingStr := FormatVectorForPgvector(embedding)
+
+	// Store in PostgreSQL with pgvector
 	query := `
 		INSERT INTO product_embeddings (product_id, embedding, created_at, updated_at)
-		VALUES (?, ?, NOW(), NOW())
-		ON DUPLICATE KEY UPDATE
-			embedding = VALUES(embedding),
-			updated_at = NOW()
+		VALUES ($1, $2::vector, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT (product_id) DO UPDATE SET
+			embedding = EXCLUDED.embedding,
+			updated_at = CURRENT_TIMESTAMP
 	`
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	_, err = es.db.ExecContext(ctx, query, product.ID, string(embeddingJSON))
+	_, err := es.writeClient.ExecuteWriteQuery(query, product.ID, embeddingStr)
 	if err != nil {
 		return fmt.Errorf("failed to store embedding: %v", err)
 	}
@@ -308,7 +303,7 @@ func (es *EmbeddingService) storeEmbedding(product models.Product, embedding []f
 	return nil
 }
 
-// SearchSimilarProducts finds products similar to the query using vector similarity
+// SearchSimilarProducts finds products similar to the query using pgvector similarity
 func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]ProductEmbedding, bool, error) {
 	fmt.Printf("[PRODUCT_EMBEDDINGS] 🔍 Querying PRODUCT EMBEDDINGS datasource - Query: '%s', Limit: %d\n", query, limit)
 
@@ -325,22 +320,25 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 
 	fmt.Printf("[VECTOR_SEARCH] Query embedding generated successfully (dimensions: %d)\n", len(embeddings[0]))
 
-	// Convert []float32 to []float64
-	queryEmbedding := make([]float64, len(embeddings[0]))
-	for j, v := range embeddings[0] {
-		queryEmbedding[j] = float64(v)
-	}
+	// Convert query embedding to pgvector format
+	queryVectorStr := FormatFloat32VectorForPgvector(embeddings[0])
 
-	// Get all product embeddings from PostgreSQL (no MariaDB joins)
-	// Product metadata is stored denormalized in the product_embeddings table
-	fmt.Printf("[PRODUCT_EMBEDDINGS] Fetching product embeddings from PostgreSQL (no MariaDB access)...\n")
+	// Use pgvector for similarity search
+	fmt.Printf("[PRODUCT_EMBEDDINGS] Executing pgvector query on PostgreSQL...\n")
 	if es.writeClient == nil {
 		return nil, false, fmt.Errorf("PostgreSQL write client not available for product embeddings search")
 	}
-	rows, err := es.writeClient.GetDB().QueryContext(ctx, queryProductEmbeddings)
+
+	// Fetch more results than requested to allow for token filtering
+	fetchLimit := limit * 3
+	if fetchLimit < 50 {
+		fetchLimit = 50
+	}
+
+	rows, err := es.writeClient.GetDB().QueryContext(ctx, queryProductEmbeddingsPgvector, queryVectorStr, fetchLimit)
 	if err != nil {
-		fmt.Printf("[PRODUCT_EMBEDDINGS] ❌ ERROR: Failed to fetch product embeddings from PostgreSQL: %v\n", err)
-		return nil, false, fmt.Errorf("failed to fetch product embeddings: %v", err)
+		fmt.Printf("[PRODUCT_EMBEDDINGS] ❌ ERROR: Failed to execute pgvector query: %v\n", err)
+		return nil, false, fmt.Errorf("failed to execute pgvector query: %v", err)
 	}
 	defer func() {
 		if err := rows.Close(); err != nil {
@@ -348,66 +346,9 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 		}
 	}()
 
-	var results []ProductEmbedding
-	processedCount := 0
-	skippedCount := 0
+	results := ScanProductEmbeddingRows(rows, "VECTOR_SEARCH")
 
-	for rows.Next() {
-		var productID int
-		var embeddingJSON string
-		var product models.Product
-
-		// Use sql.NullString for nullable fields
-		var postName, description, shortDescription, sku, minPrice, maxPrice, stockStatus, tags sql.NullString
-		var stockQuantity sql.NullFloat64
-
-		err := rows.Scan(
-			&productID,
-			&embeddingJSON,
-			&product.PostTitle,
-			&postName,
-			&description,
-			&shortDescription,
-			&sku,
-			&minPrice,
-			&maxPrice,
-			&stockStatus,
-			&stockQuantity,
-			&tags,
-		)
-
-		if err != nil {
-			skippedCount++
-			continue // Skip invalid rows
-		}
-
-		// Convert nullable fields to pointers
-		product = convertNullableFieldsToProduct(product, postName, description, shortDescription, sku, minPrice, maxPrice, stockStatus, tags, stockQuantity)
-
-		// Parse embedding
-		var embedding []float64
-		if err := json.Unmarshal([]byte(embeddingJSON), &embedding); err != nil {
-			skippedCount++
-			continue // Skip invalid embeddings
-		}
-
-		// Calculate cosine similarity
-		similarity := es.cosineSimilarity(queryEmbedding, embedding)
-
-		product.ID = productID
-		results = append(results, ProductEmbedding{
-			Product:    product,
-			Embedding:  embedding,
-			Similarity: similarity,
-		})
-		processedCount++
-	}
-
-	fmt.Printf("[VECTOR_SEARCH] Processed %d products, skipped %d invalid entries\n", processedCount, skippedCount)
-
-	// Sort by similarity (highest first)
-	fmt.Printf("[VECTOR_SEARCH] Sorting %d results by similarity...\n", len(results))
-	sortBySimilarity(results)
+	fmt.Printf("[VECTOR_SEARCH] pgvector returned %d products (already sorted by similarity)\n", len(results))
 
 	// Log top 5 results for debugging
 	if len(results) > 0 {
@@ -433,26 +374,6 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 
 	fmt.Printf("[PRODUCT_EMBEDDINGS] ✅ PRODUCT EMBEDDINGS query complete - Returning %d products (fallback=%t)\n", len(results), fallbackToSimilarity)
 	return results, fallbackToSimilarity, nil
-}
-
-// cosineSimilarity calculates cosine similarity between two vectors
-func (es *EmbeddingService) cosineSimilarity(a, b []float64) float64 {
-	if len(a) != len(b) {
-		return 0
-	}
-
-	var dotProduct, normA, normB float64
-	for i := range a {
-		dotProduct += a[i] * b[i]
-		normA += a[i] * a[i]
-		normB += b[i] * b[i]
-	}
-
-	if normA == 0 || normB == 0 {
-		return 0
-	}
-
-	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
 // applyTokenFiltering applies token-based filtering to results
