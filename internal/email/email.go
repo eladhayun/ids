@@ -31,7 +31,7 @@ func (es *EmailService) SendSupportEscalationEmail(customerEmail, summary, fullC
 		return fmt.Errorf("SendGrid API key not configured")
 	}
 
-	from := mail.NewEmail("IDS Chat System", "noreply@israeldefensestore.com")
+	from := mail.NewEmail("IDS Chat System", "support@israeldefensestore.com")
 	to := mail.NewEmail("Support Team", es.supportEmail)
 	cc := mail.NewEmail("Customer", customerEmail)
 
