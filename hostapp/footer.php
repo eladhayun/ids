@@ -117,10 +117,15 @@ if (!function_exists('elementor_theme_do_location') || !elementor_theme_do_locat
 			@media (max-width: 600px) {
 				.ids-widget-fab.ids-mobile {
 					/* Add specific mobile styles here if needed */
-					bottom: 140px;
+					bottom: 100px;
 					right: 20px; 
 					width: 50px;
 					height: 50px;
+				}
+				/* Adjust popup height on mobile to avoid appbar overlap */
+				.ids-widget-container {
+					bottom: 200px !important; /* Move it up a bit or keep same, but shorter height? kept bottom same relative to fab but reduced height */
+					max-height: calc(100vh - 250px) !important; /* Shorter max height */
 				}
 			}
 		`;
