@@ -445,6 +445,15 @@ class ChatBot {
 // Initialize the chat bot when the page loads
 document.addEventListener('DOMContentLoaded', () => {
   new ChatBot();
+
+  // Close button handler for embedded mode
+  const closeButton = document.getElementById('closeButton');
+  if (closeButton) {
+    closeButton.addEventListener('click', () => {
+      // Send message to parent window to close the chat
+      window.parent.postMessage({ type: 'ids-close-chat' }, '*');
+    });
+  }
 });
 
 // Handle page visibility changes to check connection

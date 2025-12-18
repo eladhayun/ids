@@ -84,7 +84,9 @@ config/local.json
 *.kubeconfig
 isrealde_wp654.sql
 
-server
+./server
 
 source-emails/
 email-archive.zip
+
+hostapp/**

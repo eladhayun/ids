@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>IDS Embed Test</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            padding: 20px;
+        }
+
+        .log {
+            background: #f0f0f0;
+            padding: 10px;
+            border: 1px solid #ccc;
+            height: 100px;
+            overflow: auto;
+            margin-top: 20px;
+        }
+
+        iframe {
+            width: 400px;
+            height: 600px;
+            border: 1px solid #333;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Host Page Simulator</h1>
+    <p>This page simulates the WordPress host. The iframe below loads the IDS app (assuming it's running on
+        localhost:8080).</p>
+    <div id="log" class="log">Log output...</div>
+
+    <!-- We can't easily load the actual running app without running it, but we can load the static file directly to test the JS logic if we mock the backend or just ignore 404s -->
+    <!-- For this test, we assume the user will run the server. If not, we can point to the static file but standard file:// cross origin might block. -->
+    <!-- Ideally, we test the postMessage reception. -->
+
+    <script>
+        const log = document.getElementById('log');
+        function addLog(msg) {
+            log.innerHTML += `<div>${new Date().toLocaleTimeString()} - ${msg}</div>`;
+            log.scrollTop = log.scrollHeight;
+        }
+
+        window.addEventListener('message', (event) => {
+            addLog(`Received message: ${JSON.stringify(event.data)}`);
+            if (event.data && event.data.type === 'ids-close-chat') {
+                addLog('<b>CLOSE REQUEST RECEIVED! Verification PASSED.</b>');
+            }
+        });
+    </script>
+
+    <!-- Pointing to the static file directly for basic JS testing if server isn't running, 
+         but for full test we'd need the server. 
+         Let's assume we can just review the code logic or the user will run it. 
+         We'll just provide this file for the user to use if they want.
+    -->
+    <iframe src="http://localhost:8080" onerror="addLog('Failed to load iframe. Is server running on 8080?')"></iframe>
+
+</body>
+
+</html>

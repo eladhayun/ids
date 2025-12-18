@@ -24,9 +24,18 @@
     <header class="header">
       <div class="header-content">
         <h1 class="app-title">Tactical Support Assistant</h1>
-        <div class="status-indicator" id="statusIndicator">
-          <span class="status-dot"></span>
-          <span class="status-text">Connecting...</span>
+        <div class="header-controls" style="display: flex; align-items: center; gap: 1rem;">
+          <div class="status-indicator" id="statusIndicator">
+            <span class="status-dot"></span>
+            <span class="status-text">Connecting...</span>
+          </div>
+          <button id="closeButton" class="close-button" aria-label="Close chat">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
         </div>
       </div>
     </header>
