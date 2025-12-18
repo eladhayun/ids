@@ -1,4 +1,4 @@
-.PHONY: build run fmt tidy clean test help dev swagger build-embeddings fmt-embeddings lint-embeddings run-embeddings build-import-emails import-emails import-emails-eml import-emails-mbox test-race test-all test-short test-package bench bench-package coverage-report test-clean test-e2e test-e2e-headless test-e2e-quick
+.PHONY: build run fmt tidy clean test help dev swagger build-embeddings fmt-embeddings lint-embeddings run-embeddings build-import-emails import-emails import-emails-eml import-emails-mbox test-race test-all test-short test-package bench bench-package coverage-report test-clean test-e2e test-e2e-headless test-e2e-quick deploy-footer
 
 # Build configuration
 BINARY_NAME=server
@@ -260,6 +260,12 @@ docker-build-with-swagger: swagger
 	@echo "Building Docker image with pre-generated Swagger docs..."
 	@docker build -t ids-api .
 
+# Deploy footer to WordPress server
+deploy-footer:
+	@echo "Copying footer.php to ids-wp-server..."
+	@scp hostapp/footer.php ids-wp-server:/home/isrealde/public_html/wp-content/themes/hello-elementor/
+	@echo "Copy complete."
+
 # Help
 help:
 	@echo "Available commands:"
@@ -276,6 +282,7 @@ help:
 	@echo "  swagger      - Generate Swagger documentation"
 	@echo "  docker-build - Build Docker image"
 	@echo "  docker-build-with-swagger - Build Docker image with pre-generated Swagger docs"
+	@echo "  deploy-footer - Copy footer.php to WordPress server"
 	@echo ""
 	@echo "Test commands:"
 	@echo "  test         - Run tests"

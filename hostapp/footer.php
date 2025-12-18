@@ -32,35 +32,34 @@ if (!function_exists('elementor_theme_do_location') || !elementor_theme_do_locat
 		// Configuration
 		const IDS_APP_URL = 'https://ids.jshipster.io';
 		const WIDGET_ICON = `
-		<img src="https://ids.jshipster.io/static/images/military-chatbot-icon-fav.png" alt="Tactical Support" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
+		<img src="https://ids.jshipster.io/static/images/military-chatbot-icon-fav-logo-white.png" alt="Tactical Support" style="width: 100%; height: 100%; object-fit: contain;">
 		`;
 
 		// Styles
 		const styles = `
 			.ids-widget-fab {
 				position: fixed;
-				bottom: 100px;
-				right: 8px; /* Centered alignment assuming WhatsApp is 60px wide at right:20px */
-				width: 85px; 
-				height: 85px;
+				bottom: 112px;
+				right: 24px; /* Centered alignment assuming WhatsApp is 60px wide at right:20px */
+				width: 50px; 
+				height: 50px;
 				cursor: pointer;
 				z-index: 9999;
 				transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 				
 				/* Force reset of button styles */
-				border: none !important;
-				background: transparent !important;
-				box-shadow: none !important;
+				border: 2px solid #ffffff !important;
+				background: #8b8b66 !important;
+				box-shadow: 0 4px 12px rgba(0,0,0,0.25) !important;
 				border-radius: 50% !important;
 				outline: none !important;
 				appearance: none !important;
 				-webkit-appearance: none !important;
 
-				padding: 0 !important;
+				padding: 12px !important;
 				display: flex;
 				align-items: center;
 				justify-content: center;
-				filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));
 			}
 			.ids-widget-tooltip {
 				position: absolute;
@@ -113,6 +112,17 @@ if (!function_exists('elementor_theme_do_location') || !elementor_theme_do_locat
 				border: none;
 				background: white;
 			}
+			
+			/* Mobile Optimization */
+			@media (max-width: 600px) {
+				.ids-widget-fab.ids-mobile {
+					/* Add specific mobile styles here if needed */
+					bottom: 140px;
+					right: 20px; 
+					width: 50px;
+					height: 50px;
+				}
+			}
 		`;
 
 		// Inject Styles
@@ -161,6 +171,17 @@ if (!function_exists('elementor_theme_do_location') || !elementor_theme_do_locat
 				if (isOpen) toggleChat();
 			}
 		});
+
+		// Mobile Class Toggle
+		function checkMobile() {
+			if (window.innerWidth <= 600) {
+				fab.classList.add('ids-mobile');
+			} else {
+				fab.classList.remove('ids-mobile');
+			}
+		}
+		window.addEventListener('resize', checkMobile);
+		checkMobile(); // Initial check
 	})();
 </script>
 </body>
