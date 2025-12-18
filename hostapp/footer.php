@@ -39,7 +39,7 @@ if (!function_exists('elementor_theme_do_location') || !elementor_theme_do_locat
 		const styles = `
 			.ids-widget-fab {
 				position: fixed;
-				bottom: 112px;
+				bottom: 90px;
 				right: 24px; /* Centered alignment assuming WhatsApp is 60px wide at right:20px */
 				width: 50px; 
 				height: 50px;
