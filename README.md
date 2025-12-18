@@ -20,7 +20,7 @@ The API includes comprehensive Swagger/OpenAPI documentation that can be accesse
 
 ### Available Endpoints
 
-- **GET** `/` - Static UI (Tactical Support Assistant chatbot interface)
+- **GET** `/` - Static UI (AI Assistant chatbot interface)
 - **GET** `/swagger/` - Swagger UI documentation
 
 #### API Endpoints (under `/api` prefix)
@@ -363,7 +363,7 @@ The chatbot functionality requires:
 
 1. Start the server: `make run`
 2. Open your browser to `http://localhost:8080`
-3. Use the Tactical Support Assistant chatbot interface to interact with the AI
+3. Use the AI Assistant chatbot interface to interact with the AI
 
 ### Using curl
 

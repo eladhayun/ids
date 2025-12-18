@@ -133,8 +133,8 @@ func TestAppLoads(t *testing.T) {
 		t.Errorf("Expected title to contain 'Tactical Support', got: %s", title)
 	}
 
-	if !strings.Contains(headerText, "Tactical Support Assistant") {
-		t.Errorf("Expected header to contain 'Tactical Support Assistant', got: %s", headerText)
+	if !strings.Contains(headerText, "AI Assistant") {
+		t.Errorf("Expected header to contain 'AI Assistant', got: %s", headerText)
 	}
 
 	t.Logf("App loaded successfully with title: %s", title)
@@ -196,7 +196,7 @@ func TestInitialBotMessage(t *testing.T) {
 		t.Fatalf("Failed to check initial bot message: %v", err)
 	}
 
-	expectedGreeting := "tactical support assistant"
+	expectedGreeting := "AI Assistant"
 	if !strings.Contains(strings.ToLower(messageContent), expectedGreeting) {
 		t.Errorf("Expected initial message to contain '%s', got: %s", expectedGreeting, messageContent)
 	}
