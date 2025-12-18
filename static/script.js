@@ -239,16 +239,16 @@ class ChatBot {
       throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
     }
 
-      const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error);
-      }
+    const data = await response.json();
+    if (data.error) {
+      throw new Error(data.error);
+    }
 
-      return {
-        content: data.response,
-        products: data.products || {},
-        request_support: data.request_support || false
-      };
+    return {
+      content: data.response,
+      products: data.products || {},
+      request_support: data.request_support || false
+    };
   }
 
   handleError(error) {
