@@ -5,10 +5,12 @@ class ChatBot {
     this.retryCount = 0;
     this.maxRetries = 3;
     this.products = {}; // Product name -> URL slug mapping for link generation
+    this.gaId = null; // Google Analytics Measurement ID
 
     this.initializeElements();
     this.attachEventListeners();
     this.checkConnection();
+    this.loadAnalyticsConfig();
   }
 
   initializeElements() {
@@ -93,6 +95,64 @@ class ChatBot {
     }
   }
 
+  async loadAnalyticsConfig() {
+    try {
+      const response = await fetch('/api/config');
+      if (response.ok) {
+        const config = await response.json();
+        if (config.google_analytics_id) {
+          this.gaId = config.google_analytics_id;
+          this.initializeGoogleAnalytics();
+        }
+      }
+    } catch (error) {
+      console.log('Analytics config not available:', error);
+    }
+  }
+
+  initializeGoogleAnalytics() {
+    if (!this.gaId) return;
+
+    // Load Google Analytics 4 script
+    const script1 = document.createElement('script');
+    script1.async = true;
+    script1.src = `https://www.googletagmanager.com/gtag/js?id=${this.gaId}`;
+    document.head.appendChild(script1);
+
+    // Initialize gtag
+    window.dataLayer = window.dataLayer || [];
+    function gtag() {
+      dataLayer.push(arguments);
+    }
+    gtag('js', new Date());
+    gtag('config', this.gaId, {
+      // Configure for iframe usage
+      send_page_view: true,
+      // Allow tracking in iframes
+      cookie_flags: 'SameSite=None;Secure',
+    });
+
+    // Track page view
+    this.trackEvent('page_view', {
+      page_title: document.title,
+      page_location: window.location.href,
+      // Detect if running in iframe
+      in_iframe: window.self !== window.top,
+    });
+  }
+
+  trackEvent(eventName, eventParams = {}) {
+    if (!this.gaId || typeof gtag === 'undefined') {
+      return;
+    }
+
+    try {
+      gtag('event', eventName, eventParams);
+    } catch (error) {
+      console.log('Analytics tracking error:', error);
+    }
+  }
+
   updateStatus(type, text) {
     this.statusDot.className = `status-dot ${type}`;
     this.statusText.textContent = text;
@@ -144,6 +204,13 @@ class ChatBot {
 
       // Add bot response
       this.addMessage('assistant', response.content, response.products);
+
+      // Track chat message sent
+      this.trackEvent('chat_message', {
+        message_length: message.length,
+        has_products: response.products && Object.keys(response.products).length > 0,
+        product_count: response.products ? Object.keys(response.products).length : 0,
+      });
 
       // Check if support escalation is requested
       if (response.request_support) {
@@ -429,6 +496,11 @@ class ChatBot {
       // Show success message
       this.addMessage('assistant', data.message || 'Your conversation has been sent to our support team. We\'ll get back to you soon!');
       this.hideSupportModal();
+
+      // Track support request
+      this.trackEvent('support_request', {
+        conversation_length: this.conversation.length,
+      });
 
     } catch (error) {
       console.error('Support request error:', error);

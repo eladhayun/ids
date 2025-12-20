@@ -30,6 +30,9 @@ type Config struct {
 	AzureOpenAIKey                 string // Azure OpenAI API key
 	AzureOpenAIGPTDeployment       string // Deployment name for GPT model (e.g., gpt-4o-mini)
 	AzureOpenAIEmbeddingDeployment string // Deployment name for embedding model (e.g., text-embedding-3-small)
+
+	// Analytics Configuration
+	GoogleAnalyticsID string // Google Analytics 4 Measurement ID (e.g., G-XXXXXXXXXX)
 }
 
 // Load initializes and returns application configuration
@@ -58,6 +61,9 @@ func Load() *Config {
 		AzureOpenAIKey:                 os.Getenv("AZURE_OPENAI_KEY"),
 		AzureOpenAIGPTDeployment:       getEnv("AZURE_OPENAI_GPT_DEPLOYMENT", "gpt-4o-mini"),
 		AzureOpenAIEmbeddingDeployment: getEnv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT", "text-embedding-3-small"),
+
+		// Analytics
+		GoogleAnalyticsID: os.Getenv("GOOGLE_ANALYTICS_ID"), // Optional: GA4 Measurement ID
 	}
 
 	return config

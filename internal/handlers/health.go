@@ -111,3 +111,20 @@ func RootHandler(version string) echo.HandlerFunc {
 		})
 	}
 }
+
+// ConfigHandler returns frontend configuration (e.g., Google Analytics ID)
+// @Summary Get frontend configuration
+// @Description Get frontend configuration values like Google Analytics ID
+// @Tags general
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Router /api/config [get]
+func ConfigHandler(gaID string) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		config := map[string]interface{}{
+			"google_analytics_id": gaID,
+		}
+		return c.JSON(http.StatusOK, config)
+	}
+}

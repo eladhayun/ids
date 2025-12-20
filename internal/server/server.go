@@ -153,6 +153,7 @@ func (s *Server) setupRoutes() {
 
 	// API endpoints under /api prefix
 	api.GET("/", handlers.RootHandler(s.config.Version))
+	api.GET("/config", handlers.ConfigHandler(s.config.GoogleAnalyticsID))
 
 	// Chat endpoint with product and email context (requires embedding service and write client)
 	if s.writeClient != nil && s.embeddingService != nil {
