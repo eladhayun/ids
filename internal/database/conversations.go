@@ -138,6 +138,11 @@ func (s *ConversationService) GetSessions(limit, offset int) ([]models.ChatSessi
 		return nil, fmt.Errorf("failed to get sessions: %w", err)
 	}
 
+	// Ensure we return an empty slice, not nil
+	if sessions == nil {
+		sessions = []models.ChatSession{}
+	}
+
 	return sessions, nil
 }
 

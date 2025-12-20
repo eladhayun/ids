@@ -98,6 +98,11 @@ func ListSessionsHandler(conversationService *database.ConversationService) echo
 			})
 		}
 
+		// Ensure sessions is never nil
+		if sessions == nil {
+			sessions = []models.ChatSession{}
+		}
+
 		// Get total count
 		total, err := conversationService.GetSessionCount()
 		if err != nil {

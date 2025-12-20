@@ -137,6 +137,20 @@ class AdminSessions {
       }
 
       const data = await response.json();
+      
+      // Debug logging
+      console.log('Sessions API response:', data);
+      
+      // Check if response has error
+      if (data.error) {
+        throw new Error(data.error);
+      }
+      
+      // Ensure sessions array exists (handle null/undefined)
+      if (!data || !data.sessions) {
+        data = { sessions: [], total: 0, limit: this.pageSize, offset: 0, has_more: false };
+      }
+      
       this.renderSessions(data);
       this.renderPagination(data);
     } catch (error) {
@@ -145,7 +159,7 @@ class AdminSessions {
   }
 
   renderSessions(data) {
-    if (data.sessions.length === 0) {
+    if (!data || !data.sessions || data.sessions.length === 0) {
       this.sessionsTableBody.innerHTML = '<tr><td colspan="4" class="loading">No sessions found</td></tr>';
       return;
     }
@@ -168,6 +182,11 @@ class AdminSessions {
   }
 
   renderPagination(data) {
+    if (!data || data.total === undefined) {
+      this.pagination.innerHTML = '';
+      return;
+    }
+    
     const totalPages = Math.ceil(data.total / this.pageSize);
     const currentPage = this.currentPage;
 
