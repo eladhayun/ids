@@ -439,15 +439,19 @@ class ChatBot {
   }
 
   async sendToBackend(message) {
+    console.log('[CHAT] Sending request with sessionId:', this.sessionId);
+    const requestBody = {
+      conversation: this.conversation,
+      session_id: this.sessionId
+    };
+    console.log('[CHAT] Request body:', JSON.stringify(requestBody));
+    
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        conversation: this.conversation,
-        session_id: this.sessionId
-      })
+      body: JSON.stringify(requestBody)
     });
 
     if (!response.ok) {

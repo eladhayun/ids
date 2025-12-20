@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"strings"
 
 	"ids/internal/models"
 )
@@ -59,9 +60,15 @@ func (s *ConversationService) CreateTables() error {
 	}
 
 	for _, query := range queries {
-		if _, err := s.writeClient.ExecuteWriteQuery(query); err != nil {
-			// Ignore "already exists" errors
-			continue
+		_, err := s.writeClient.ExecuteWriteQuery(query)
+		if err != nil {
+			// Check if it's a "already exists" error (PostgreSQL error code 42P07)
+			if strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "42P07") {
+				// Table/index already exists, that's fine
+				continue
+			}
+			// Log other errors but don't fail - tables might already exist
+			fmt.Printf("[CONVERSATIONS] Warning: Error creating table/index: %v\n", err)
 		}
 	}
 

@@ -75,6 +75,7 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embeddingS
 		}
 
 		fmt.Printf("[CHAT] Received conversation with %d messages\n", len(req.Conversation))
+		fmt.Printf("[CHAT] SessionID from request: '%s'\n", req.SessionID)
 
 		// Validate conversation is not empty
 		if len(req.Conversation) == 0 {
