@@ -11,6 +11,8 @@ class ChatBot {
     this.attachEventListeners();
     this.checkConnection();
     this.loadAnalyticsConfig();
+    // Initialize textarea height to prevent scrollbar when empty
+    this.autoResizeTextarea();
   }
 
   initializeElements() {
@@ -281,7 +283,16 @@ class ChatBot {
 
   autoResizeTextarea() {
     this.messageInput.style.height = 'auto';
-    this.messageInput.style.height = Math.min(this.messageInput.scrollHeight, 120) + 'px';
+    const scrollHeight = this.messageInput.scrollHeight;
+    const maxHeight = 120; // matches max-height in CSS
+    const newHeight = Math.min(scrollHeight, maxHeight);
+    this.messageInput.style.height = newHeight + 'px';
+    // Only show scrollbar when content exceeds max height
+    if (scrollHeight > maxHeight) {
+      this.messageInput.style.overflowY = 'auto';
+    } else {
+      this.messageInput.style.overflowY = 'hidden';
+    }
   }
 
   updateCharCount() {

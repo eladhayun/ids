@@ -572,6 +572,8 @@ body {
   -webkit-appearance: none;
   -moz-appearance: none;
   appearance: none;
+  overflow-y: hidden;
+  overflow-x: hidden;
 }
 
 #messageInput:focus {
