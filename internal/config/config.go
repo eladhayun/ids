@@ -33,6 +33,10 @@ type Config struct {
 
 	// Analytics Configuration
 	GoogleAnalyticsID string // Google Analytics 4 Measurement ID (e.g., G-XXXXXXXXXX)
+
+	// Admin Configuration
+	AdminUsername string // Admin username for session viewing
+	AdminPassword string // Admin password for session viewing
 }
 
 // Load initializes and returns application configuration
@@ -64,6 +68,10 @@ func Load() *Config {
 
 		// Analytics
 		GoogleAnalyticsID: os.Getenv("GOOGLE_ANALYTICS_ID"), // Optional: GA4 Measurement ID
+
+		// Admin
+		AdminUsername: os.Getenv("ADMIN_USERNAME"), // Admin username for session viewing
+		AdminPassword: os.Getenv("ADMIN_PASSWORD"), // Admin password for session viewing
 	}
 
 	return config

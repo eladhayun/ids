@@ -10,6 +10,7 @@ import (
 
 	"ids/internal/analytics"
 	"ids/internal/config"
+	"ids/internal/database"
 	"ids/internal/email"
 	"ids/internal/models"
 
@@ -35,7 +36,7 @@ const (
 // @Failure 400 {object} models.SupportResponse
 // @Failure 500 {object} models.SupportResponse
 // @Router /api/chat/request-support [post]
-func SupportRequestHandler(cfg *config.Config, analyticsService *analytics.Service) echo.HandlerFunc {
+func SupportRequestHandler(cfg *config.Config, analyticsService *analytics.Service, conversationService *database.ConversationService) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		fmt.Printf("[SUPPORT] ===== NEW SUPPORT REQUEST =====\n")
 
@@ -89,7 +90,8 @@ func SupportRequestHandler(cfg *config.Config, analyticsService *analytics.Servi
 
 		// Send email via email service
 		emailService := email.NewEmailService(cfg.SendGridAPIKey, cfg.SupportEmail)
-		if err := emailService.SendSupportEscalationEmail(req.CustomerEmail, summary, fullConversation); err != nil {
+		emailHTML, err := emailService.SendSupportEscalationEmail(req.CustomerEmail, summary, fullConversation)
+		if err != nil {
 			fmt.Printf("[SUPPORT] ERROR: Failed to send email: %v\n", err)
 			return c.JSON(http.StatusInternalServerError, models.SupportResponse{
 				Success: false,
@@ -98,6 +100,15 @@ func SupportRequestHandler(cfg *config.Config, analyticsService *analytics.Servi
 		}
 
 		fmt.Printf("[SUPPORT] ✅ Support escalation email sent successfully to %s\n", req.CustomerEmail)
+
+		// Save email HTML to session if session_id is provided and conversation service is available
+		if req.SessionID != "" && conversationService != nil {
+			go func() {
+				if err := conversationService.UpdateSessionEmail(req.SessionID, emailHTML); err != nil {
+					fmt.Printf("[SUPPORT] Warning: Failed to save email HTML to session: %v\n", err)
+				}
+			}()
+		}
 
 		// Track analytics
 		if analyticsService != nil {

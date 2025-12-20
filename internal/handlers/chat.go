@@ -38,7 +38,7 @@ const stockStatusInStock = "instock"
 // @Router /api/chat [post]
 //
 //nolint:gocyclo // Handler has necessary complexity for validation, search, and response building
-func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embeddingService *embeddings.EmbeddingService, writeClient *database.WriteClient, analyticsService *analytics.Service) echo.HandlerFunc {
+func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embeddingService *embeddings.EmbeddingService, writeClient *database.WriteClient, analyticsService *analytics.Service, conversationService *database.ConversationService) echo.HandlerFunc {
 	// Create email embedding service
 	emailService, err := emails.NewEmailEmbeddingService(cfg, writeClient)
 	if err != nil {
@@ -249,6 +249,31 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embeddingS
 		}
 
 		fmt.Printf("[CHAT] 📊 DATASOURCE SUMMARY: Used %d product embeddings, %d email embeddings\n", len(inStockProducts), len(similarEmails))
+
+		// Save conversation to database if session_id is provided and conversation service is available
+		if req.SessionID != "" && conversationService != nil {
+			go func() {
+				// Save all conversation messages (user and assistant)
+				for _, msg := range req.Conversation {
+					role := "user"
+					if strings.Contains(strings.ToLower(msg.Role), "assistant") ||
+						strings.Contains(strings.ToLower(msg.Role), "bot") ||
+						strings.Contains(strings.ToLower(msg.Role), "ai") {
+						role = "assistant"
+					}
+					if err := conversationService.SaveMessage(req.SessionID, role, msg.Message); err != nil {
+						fmt.Printf("[CHAT] Warning: Failed to save message: %v\n", err)
+					}
+				}
+				// Save the AI response
+				if err := conversationService.SaveMessage(req.SessionID, "assistant", response); err != nil {
+					fmt.Printf("[CHAT] Warning: Failed to save AI response: %v\n", err)
+				}
+			}()
+		} else if req.SessionID == "" {
+			fmt.Printf("[CHAT] Warning: No session_id provided, conversation not saved\n")
+		}
+
 		fmt.Printf("[CHAT] ===== REQUEST COMPLETE =====\n\n")
 
 		return c.JSON(http.StatusOK, models.ChatResponse{

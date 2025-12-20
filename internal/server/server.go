@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"ids/internal/analytics"
+	"ids/internal/auth"
 	"ids/internal/cache"
 	"ids/internal/config"
 	"ids/internal/database"
@@ -19,14 +20,16 @@ import (
 
 // Server represents the application server
 type Server struct {
-	echo             *echo.Echo
-	db               *sqlx.DB
-	writeClient      *database.WriteClient
-	config           *config.Config
-	logger           zerolog.Logger
-	cache            *cache.Cache
-	embeddingService *embeddings.EmbeddingService
-	analyticsService *analytics.Service
+	echo                *echo.Echo
+	db                  *sqlx.DB
+	writeClient         *database.WriteClient
+	config              *config.Config
+	logger              zerolog.Logger
+	cache               *cache.Cache
+	embeddingService    *embeddings.EmbeddingService
+	analyticsService    *analytics.Service
+	conversationService *database.ConversationService
+	authManager         *auth.Manager
 }
 
 // New creates a new server instance
@@ -69,14 +72,31 @@ func New(cfg *config.Config, db *sqlx.DB, logger zerolog.Logger) *Server {
 		}
 	}
 
+	// Initialize conversation service
+	var conversationService *database.ConversationService
+	if writeClient != nil {
+		var err error
+		conversationService, err = database.NewConversationService(writeClient)
+		if err != nil {
+			logger.Warn().Err(err).Msg("Failed to initialize conversation service")
+		} else {
+			logger.Info().Msg("Conversation service initialized successfully")
+		}
+	}
+
+	// Initialize auth manager
+	authManager := auth.NewManager(cfg)
+
 	return &Server{
-		config:           cfg,
-		db:               db,
-		writeClient:      writeClient,
-		logger:           logger,
-		cache:            cache.New(),
-		embeddingService: embeddingService,
-		analyticsService: analyticsService,
+		config:              cfg,
+		db:                  db,
+		writeClient:         writeClient,
+		logger:              logger,
+		cache:               cache.New(),
+		embeddingService:    embeddingService,
+		analyticsService:    analyticsService,
+		conversationService: conversationService,
+		authManager:         authManager,
 	}
 }
 
@@ -157,11 +177,11 @@ func (s *Server) setupRoutes() {
 
 	// Chat endpoint with product and email context (requires embedding service and write client)
 	if s.writeClient != nil && s.embeddingService != nil {
-		api.POST("/chat", handlers.ChatHandler(s.db, s.config, s.cache, s.embeddingService, s.writeClient, s.analyticsService))
+		api.POST("/chat", handlers.ChatHandler(s.db, s.config, s.cache, s.embeddingService, s.writeClient, s.analyticsService, s.conversationService))
 	}
 
 	// Support escalation endpoint
-	api.POST("/chat/request-support", handlers.SupportRequestHandler(s.config, s.analyticsService))
+	api.POST("/chat/request-support", handlers.SupportRequestHandler(s.config, s.analyticsService, s.conversationService))
 
 	// Analytics endpoints
 	if s.analyticsService != nil {
@@ -174,6 +194,16 @@ func (s *Server) setupRoutes() {
 	admin.POST("/import-emails", handlers.TriggerEmailImportHandler(s.config))                 // Triggers end-to-end email import (download + import + embed)
 	admin.GET("/email-import-status/:jobName", handlers.GetEmailImportStatusHandler(s.config)) // Get job status
 
+	// Admin login (no auth required)
+	admin.POST("/login", handlers.AdminLoginHandler(s.authManager))
+
+	// Admin session endpoints (require authentication)
+	adminSessions := admin.Group("/sessions")
+	adminSessions.Use(auth.Middleware(s.authManager))
+	adminSessions.GET("", handlers.ListSessionsHandler(s.conversationService))
+	adminSessions.GET("/:sessionId", handlers.GetSessionHandler(s.conversationService))
+	adminSessions.GET("/:sessionId/email", handlers.GetSessionEmailHandler(s.conversationService))
+
 	// Handle favicon requests
 	s.echo.GET("/favicon.ico", func(c echo.Context) error {
 		return c.NoContent(204) // No content response for favicon
@@ -185,6 +215,10 @@ func (s *Server) setupRoutes() {
 	s.echo.File("/index.html", "static/index.html")
 	s.echo.File("/script.js", "static/script.js")
 	s.echo.File("/style.css", "static/style.css")
+
+	// Admin UI routes
+	s.echo.File("/admin/sessions", "static/admin-sessions.html")
+	s.echo.File("/admin-sessions.js", "static/admin-sessions.js")
 }
 
 // Start starts the HTTP server

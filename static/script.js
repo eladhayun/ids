@@ -6,6 +6,7 @@ class ChatBot {
     this.maxRetries = 3;
     this.products = {}; // Product name -> URL slug mapping for link generation
     this.gaId = null; // Google Analytics Measurement ID
+    this.sessionId = this.getOrCreateSessionId(); // Session ID for conversation tracking
 
     this.initializeElements();
     this.attachEventListeners();
@@ -13,6 +14,21 @@ class ChatBot {
     this.loadAnalyticsConfig();
     // Initialize textarea height to prevent scrollbar when empty
     this.autoResizeTextarea();
+  }
+
+  // Generate or retrieve session ID from localStorage
+  getOrCreateSessionId() {
+    let sessionId = localStorage.getItem('chat_session_id');
+    if (!sessionId) {
+      // Generate UUID v4
+      sessionId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+      localStorage.setItem('chat_session_id', sessionId);
+    }
+    return sessionId;
   }
 
   initializeElements() {
@@ -429,7 +445,8 @@ class ChatBot {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        conversation: this.conversation
+        conversation: this.conversation,
+        session_id: this.sessionId
       })
     });
 
@@ -611,7 +628,8 @@ class ChatBot {
         },
         body: JSON.stringify({
           conversation: this.conversation,
-          customer_email: email
+          customer_email: email,
+          session_id: this.sessionId
         })
       });
 

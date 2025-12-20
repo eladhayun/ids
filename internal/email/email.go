@@ -33,9 +33,9 @@ func NewEmailService(apiKey, supportEmail string) *EmailService {
 }
 
 // SendSupportEscalationEmail sends an email to support with conversation summary
-func (es *EmailService) SendSupportEscalationEmail(customerEmail, summary, fullConversation string) error {
+func (es *EmailService) SendSupportEscalationEmail(customerEmail, summary, fullConversation string) (string, error) {
 	if es.apiKey == "" {
-		return fmt.Errorf("SendGrid API key not configured")
+		return "", fmt.Errorf("SendGrid API key not configured")
 	}
 
 	from := mail.NewEmail("IDS Chat System", "support@israeldefensestore.com")
@@ -61,14 +61,14 @@ func (es *EmailService) SendSupportEscalationEmail(customerEmail, summary, fullC
 	client := sendgrid.NewSendClient(es.apiKey)
 	response, err := client.Send(message)
 	if err != nil {
-		return fmt.Errorf("failed to send email: %w", err)
+		return htmlContent, fmt.Errorf("failed to send email: %w", err)
 	}
 
 	if response.StatusCode >= 400 {
-		return fmt.Errorf("SendGrid API error: status %d, body: %s", response.StatusCode, response.Body)
+		return htmlContent, fmt.Errorf("SendGrid API error: status %d, body: %s", response.StatusCode, response.Body)
 	}
 
-	return nil
+	return htmlContent, nil
 }
 
 // generatePlainTextEmail creates the plain text version of the email
