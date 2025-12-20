@@ -102,7 +102,10 @@ class ChatBot {
         const config = await response.json();
         if (config.google_analytics_id) {
           this.gaId = config.google_analytics_id;
+          console.log('Google Analytics ID loaded:', this.gaId);
           this.initializeGoogleAnalytics();
+        } else {
+          console.log('Google Analytics ID not configured');
         }
       }
     } catch (error) {
@@ -111,45 +114,91 @@ class ChatBot {
   }
 
   initializeGoogleAnalytics() {
-    if (!this.gaId) return;
+    if (!this.gaId) {
+      console.log('Google Analytics: No ID provided');
+      return;
+    }
+
+    console.log('Initializing Google Analytics with ID:', this.gaId);
+
+    // Detect if running in iframe and get parent URL
+    const isInIframe = window.self !== window.top;
+    let parentUrl = null;
+    try {
+      if (isInIframe) {
+        parentUrl = document.referrer || (window.parent !== window.self ? window.parent.location.href : null);
+      }
+    } catch (e) {
+      // Cross-origin iframe - can't access parent URL directly
+      parentUrl = document.referrer || 'cross-origin-iframe';
+    }
+
+    // Initialize dataLayer and gtag function BEFORE loading the script
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = window.gtag || function () {
+      window.dataLayer.push(arguments);
+    };
+    window.gtag('js', new Date());
+
+    // Configure GA4 for iframe usage with host app domain
+    const gaConfig = {
+      // Configure for iframe usage
+      send_page_view: true,
+      // Allow tracking in iframes (required for cross-domain iframe tracking)
+      cookie_flags: 'SameSite=None;Secure',
+    };
+
+    window.gtag('config', this.gaId, gaConfig);
 
     // Load Google Analytics 4 script
     const script1 = document.createElement('script');
     script1.async = true;
     script1.src = `https://www.googletagmanager.com/gtag/js?id=${this.gaId}`;
+
+    // Wait for script to load, then track page view
+    script1.onload = () => {
+      console.log('Google Analytics script loaded successfully');
+      // Track page view after script loads with parent URL info
+      this.trackEvent('page_view', {
+        page_title: document.title,
+        page_location: window.location.href,
+        // Track parent URL if in iframe
+        parent_url: parentUrl,
+        // Detect if running in iframe
+        in_iframe: isInIframe,
+      });
+      console.log('Page view event sent to Google Analytics', {
+        in_iframe: isInIframe,
+        parent_url: parentUrl
+      });
+    };
+
+    script1.onerror = () => {
+      console.error('Failed to load Google Analytics script');
+    };
+
     document.head.appendChild(script1);
-
-    // Initialize gtag
-    window.dataLayer = window.dataLayer || [];
-    function gtag() {
-      dataLayer.push(arguments);
-    }
-    gtag('js', new Date());
-    gtag('config', this.gaId, {
-      // Configure for iframe usage
-      send_page_view: true,
-      // Allow tracking in iframes
-      cookie_flags: 'SameSite=None;Secure',
-    });
-
-    // Track page view
-    this.trackEvent('page_view', {
-      page_title: document.title,
-      page_location: window.location.href,
-      // Detect if running in iframe
-      in_iframe: window.self !== window.top,
-    });
   }
 
   trackEvent(eventName, eventParams = {}) {
-    if (!this.gaId || typeof gtag === 'undefined') {
+    if (!this.gaId) {
       return;
     }
 
-    try {
-      gtag('event', eventName, eventParams);
-    } catch (error) {
-      console.log('Analytics tracking error:', error);
+    // Use window.gtag if available, otherwise queue for later
+    if (typeof window.gtag === 'function') {
+      try {
+        window.gtag('event', eventName, eventParams);
+      } catch (error) {
+        console.log('Analytics tracking error:', error);
+      }
+    } else {
+      // Queue the event if gtag isn't ready yet
+      window.dataLayer = window.dataLayer || [];
+      window.dataLayer.push({
+        event: eventName,
+        ...eventParams
+      });
     }
   }
 
