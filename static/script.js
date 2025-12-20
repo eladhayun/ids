@@ -119,8 +119,6 @@ class ChatBot {
       return;
     }
 
-    console.log('Initializing Google Analytics with ID:', this.gaId);
-
     // Detect if running in iframe and get parent URL
     const isInIframe = window.self !== window.top;
     let parentUrl = null;
@@ -133,6 +131,14 @@ class ChatBot {
       parentUrl = document.referrer || 'cross-origin-iframe';
     }
 
+    console.log('Initializing Google Analytics:', {
+      gaId: this.gaId,
+      isInIframe: isInIframe,
+      parentUrl: parentUrl,
+      referrer: document.referrer,
+      location: window.location.href
+    });
+
     // Initialize dataLayer and gtag function BEFORE loading the script
     window.dataLayer = window.dataLayer || [];
     window.gtag = window.gtag || function () {
@@ -141,56 +147,121 @@ class ChatBot {
     window.gtag('js', new Date());
 
     // Configure GA4 for iframe usage with host app domain
+    // Important: For cross-domain iframes, we need specific settings
     const gaConfig = {
       // Configure for iframe usage
       send_page_view: true,
       // Allow tracking in iframes (required for cross-domain iframe tracking)
       cookie_flags: 'SameSite=None;Secure',
+      // Enable automatic linker for cross-domain tracking
+      linker: {
+        domains: ['israeldefensestore.com', 'ids.jshipster.io']
+      },
+      // Allow iframe tracking
+      allow_google_signals: true,
+      // Set custom parameters for iframe context
+      custom_map: {
+        'parent_url': 'parent_url',
+        'in_iframe': 'in_iframe'
+      }
     };
 
     window.gtag('config', this.gaId, gaConfig);
+    console.log('Google Analytics config set:', gaConfig);
 
     // Load Google Analytics 4 script
     const script1 = document.createElement('script');
     script1.async = true;
     script1.src = `https://www.googletagmanager.com/gtag/js?id=${this.gaId}`;
 
-    // Wait for script to load, then track page view
-    script1.onload = () => {
-      console.log('Google Analytics script loaded successfully');
-      // Track page view after script loads with parent URL info
-      this.trackEvent('page_view', {
-        page_title: document.title,
-        page_location: window.location.href,
-        // Track parent URL if in iframe
-        parent_url: parentUrl,
-        // Detect if running in iframe
-        in_iframe: isInIframe,
-      });
-      console.log('Page view event sent to Google Analytics', {
-        in_iframe: isInIframe,
-        parent_url: parentUrl
-      });
+    // Track page view immediately (before script loads) to ensure it's captured
+    const pageViewParams = {
+      page_title: document.title,
+      page_location: window.location.href,
+      parent_url: parentUrl,
+      in_iframe: isInIframe,
+      referrer: document.referrer
     };
 
-    script1.onerror = () => {
-      console.error('Failed to load Google Analytics script');
+    // Queue the page view event immediately
+    this.trackEvent('page_view', pageViewParams);
+    console.log('Page view event queued:', pageViewParams);
+
+    // Wait for script to load, then track again to ensure it's sent
+    script1.onload = () => {
+      console.log('Google Analytics script loaded successfully');
+
+      // Wait a moment for gtag to initialize
+      setTimeout(() => {
+        // Track page view again after script loads to ensure it's sent
+        this.trackEvent('page_view', pageViewParams);
+        console.log('Page view event sent to Google Analytics after script load', pageViewParams);
+
+        // Verify gtag is working
+        if (typeof window.gtag === 'function') {
+          console.log('✅ gtag function is available');
+        } else {
+          console.error('❌ gtag function is NOT available');
+        }
+
+        // Check dataLayer
+        console.log('dataLayer contents:', window.dataLayer);
+        console.log('dataLayer length:', window.dataLayer ? window.dataLayer.length : 0);
+
+        // Check if cookies are being set (GA4 uses _ga cookie)
+        const hasGACookie = document.cookie.includes('_ga') || document.cookie.includes('_ga_');
+        console.log('GA cookies present:', hasGACookie);
+        console.log('All cookies:', document.cookie);
+
+        // Diagnostic: Check if we're in a third-party context
+        const isThirdParty = isInIframe && window.location.origin !== (parentUrl ? new URL(parentUrl).origin : null);
+        console.log('Third-party context:', isThirdParty);
+
+        // Try to manually trigger a test event
+        try {
+          window.gtag('event', 'test_event', {
+            test: true,
+            timestamp: Date.now()
+          });
+          console.log('✅ Test event sent successfully');
+        } catch (e) {
+          console.error('❌ Failed to send test event:', e);
+        }
+      }, 500);
+    };
+
+    script1.onerror = (error) => {
+      console.error('Failed to load Google Analytics script:', error);
+      // Even if script fails, try to send via Measurement Protocol as fallback
+      console.warn('GA script failed to load - events may not be tracked');
     };
 
     document.head.appendChild(script1);
+    console.log('Google Analytics script tag added to head');
   }
 
   trackEvent(eventName, eventParams = {}) {
     if (!this.gaId) {
+      console.log('TrackEvent: No GA ID, skipping', eventName);
       return;
     }
+
+    console.log('TrackEvent called:', eventName, eventParams);
 
     // Use window.gtag if available, otherwise queue for later
     if (typeof window.gtag === 'function') {
       try {
         window.gtag('event', eventName, eventParams);
+        console.log('✅ Event sent via gtag:', eventName);
       } catch (error) {
-        console.log('Analytics tracking error:', error);
+        console.error('❌ Analytics tracking error:', error);
+        // Fallback: push to dataLayer
+        window.dataLayer = window.dataLayer || [];
+        window.dataLayer.push({
+          event: eventName,
+          ...eventParams
+        });
+        console.log('Event pushed to dataLayer as fallback');
       }
     } else {
       // Queue the event if gtag isn't ready yet
@@ -199,6 +270,7 @@ class ChatBot {
         event: eventName,
         ...eventParams
       });
+      console.log('Event queued in dataLayer (gtag not ready):', eventName);
     }
   }
 
