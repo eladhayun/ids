@@ -37,6 +37,10 @@ type Config struct {
 	// Admin Configuration
 	AdminUsername string // Admin username for session viewing
 	AdminPassword string // Admin password for session viewing
+
+	// Qdrant Configuration
+	QdrantURL     string // Qdrant server URL (e.g., ids-qdrant:6334 for gRPC)
+	QdrantEnabled bool   // Feature flag to enable Qdrant for vector search (dual-write always enabled when URL is set)
 }
 
 // Load initializes and returns application configuration
@@ -72,6 +76,10 @@ func Load() *Config {
 		// Admin
 		AdminUsername: os.Getenv("ADMIN_USERNAME"), // Admin username for session viewing
 		AdminPassword: os.Getenv("ADMIN_PASSWORD"), // Admin password for session viewing
+
+		// Qdrant
+		QdrantURL:     getEnv("QDRANT_URL", "ids-qdrant:6334"), // Default to in-cluster service
+		QdrantEnabled: getEnvBool("QDRANT_ENABLED", false),     // Feature flag for Qdrant search reads
 	}
 
 	return config

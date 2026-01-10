@@ -6,9 +6,11 @@ import (
 	"strings"
 	"time"
 
+	"ids/internal/cache"
 	"ids/internal/config"
 	"ids/internal/database"
 	"ids/internal/models"
+	"ids/internal/vectordb"
 
 	"github.com/sashabaranov/go-openai"
 )
@@ -23,12 +25,15 @@ func min(a, b int) int {
 
 // EmailEmbeddingService handles vector embeddings for emails
 type EmailEmbeddingService struct {
-	client *openai.Client
-	db     *database.WriteClient
+	client       *openai.Client
+	db           *database.WriteClient
+	cache        *cache.Cache
+	qdrantClient *vectordb.QdrantClient // Qdrant client for dual-write (optional)
 }
 
 // NewEmailEmbeddingService creates a new email embedding service
-func NewEmailEmbeddingService(cfg *config.Config, writeClient *database.WriteClient) (*EmailEmbeddingService, error) {
+// embeddingCache: Optional cache for query embeddings (can be nil)
+func NewEmailEmbeddingService(cfg *config.Config, writeClient *database.WriteClient, embeddingCache ...*cache.Cache) (*EmailEmbeddingService, error) {
 	client := openai.NewClient(cfg.OpenAIKey)
 
 	// Test the connection
@@ -43,10 +48,25 @@ func NewEmailEmbeddingService(cfg *config.Config, writeClient *database.WriteCli
 		return nil, fmt.Errorf("failed to connect to OpenAI API: %v", err)
 	}
 
-	return &EmailEmbeddingService{
+	service := &EmailEmbeddingService{
 		client: client,
 		db:     writeClient,
-	}, nil
+	}
+
+	// Set cache if provided
+	if len(embeddingCache) > 0 && embeddingCache[0] != nil {
+		service.cache = embeddingCache[0]
+	}
+
+	return service, nil
+}
+
+// SetQdrantClient sets the Qdrant client for dual-write
+func (ees *EmailEmbeddingService) SetQdrantClient(client *vectordb.QdrantClient) {
+	ees.qdrantClient = client
+	if client != nil {
+		fmt.Printf("[EMAIL_EMBEDDINGS] Qdrant dual-write enabled for email threads\n")
+	}
 }
 
 // CreateEmailTables creates the necessary database tables (PostgreSQL-compatible with pgvector)
@@ -115,7 +135,9 @@ func (ees *EmailEmbeddingService) CreateEmailTables() error {
 		`CREATE INDEX IF NOT EXISTS idx_email_threads_first_date ON email_threads(first_date)`,
 		`CREATE INDEX IF NOT EXISTS idx_email_threads_last_date ON email_threads(last_date)`,
 		// HNSW index for fast cosine similarity search with pgvector
-		`CREATE INDEX IF NOT EXISTS idx_email_embeddings_hnsw ON email_embeddings USING hnsw (embedding vector_cosine_ops)`,
+		// m=16: number of connections per layer (higher = better recall, more memory)
+		// ef_construction=100: size of dynamic candidate list for construction (higher = better index quality, slower build)
+		`CREATE INDEX IF NOT EXISTS idx_email_embeddings_hnsw ON email_embeddings USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 100)`,
 	}
 
 	for _, query := range indexes {
@@ -573,6 +595,7 @@ func (ees *EmailEmbeddingService) buildThreadText(emails []models.Email) string 
 }
 
 // storeEmailEmbedding stores an embedding for an email or thread using pgvector
+// Also writes thread embeddings to Qdrant if dual-write is enabled
 func (ees *EmailEmbeddingService) storeEmailEmbedding(emailID int, threadID *string, embedding []float64) error {
 	// Convert embedding to pgvector format
 	embeddingStr := formatVectorForPgvector(embedding)
@@ -601,7 +624,33 @@ func (ees *EmailEmbeddingService) storeEmailEmbedding(emailID int, threadID *str
 	}
 
 	_, err := ees.db.ExecuteWriteQuery(query, args...)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to store embedding in PostgreSQL: %w", err)
+	}
+
+	// Dual-write thread embeddings to Qdrant if enabled
+	if ees.qdrantClient != nil && threadID != nil {
+		// Convert float64 to float32 for Qdrant
+		embedding32 := make([]float32, len(embedding))
+		for i, v := range embedding {
+			embedding32[i] = float32(v)
+		}
+
+		// Get thread info from database for payload
+		payload := vectordb.EmailPayload{
+			ThreadID: *threadID,
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := ees.qdrantClient.UpsertEmailThread(ctx, *threadID, embedding32, payload); err != nil {
+			// Log error but don't fail - PostgreSQL is the primary store
+			fmt.Printf("[EMAIL_EMBEDDINGS] Warning: Failed to write thread to Qdrant: %v\n", err)
+		}
+	}
+
+	return nil
 }
 
 // formatVectorForPgvector converts a float64 slice to pgvector string format
@@ -630,38 +679,71 @@ func (ees *EmailEmbeddingService) SearchSimilarEmails(query string, limit int, s
 	}
 	fmt.Printf("[EMAIL_EMBEDDINGS] 🔍 Querying EMAIL EMBEDDINGS datasource - Query: '%s', Limit: %d, Type: %s\n", query, limit, searchType)
 
-	// Generate embedding for query
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	fmt.Printf("[EMAIL_EMBEDDINGS] Generating query embedding...\n")
-	resp, err := ees.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
-		Input: []string{query},
-		Model: openai.SmallEmbedding3,
-	})
-	if err != nil {
-		fmt.Printf("[EMAIL_EMBEDDINGS] ❌ ERROR: Failed to generate query embedding: %v\n", err)
-		return nil, err
+	// Try to get embedding from cache first
+	var queryEmbedding []float32
+	if ees.cache != nil {
+		if cachedEmbedding, found := ees.cache.GetEmbedding(query); found {
+			fmt.Printf("[EMAIL_EMBEDDINGS] ✓ Cache HIT - using cached query embedding\n")
+			queryEmbedding = cachedEmbedding
+		}
 	}
-	fmt.Printf("[EMAIL_EMBEDDINGS] Query embedding generated (dimensions: %d)\n", len(resp.Data[0].Embedding))
+
+	// Generate embedding if not in cache
+	if queryEmbedding == nil {
+		fmt.Printf("[EMAIL_EMBEDDINGS] Generating query embedding...\n")
+		resp, err := ees.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
+			Input: []string{query},
+			Model: openai.SmallEmbedding3,
+		})
+		if err != nil {
+			fmt.Printf("[EMAIL_EMBEDDINGS] ❌ ERROR: Failed to generate query embedding: %v\n", err)
+			return nil, err
+		}
+		queryEmbedding = resp.Data[0].Embedding
+
+		// Store in cache for future requests
+		if ees.cache != nil {
+			ees.cache.SetEmbedding(query, queryEmbedding)
+			fmt.Printf("[EMAIL_EMBEDDINGS] ✓ Cached query embedding for future use\n")
+		}
+	}
+
+	fmt.Printf("[EMAIL_EMBEDDINGS] Query embedding ready (dimensions: %d)\n", len(queryEmbedding))
 
 	// Convert query embedding to pgvector format
-	queryVectorStr := formatFloat32VectorForPgvector(resp.Data[0].Embedding)
+	queryVectorStr := formatFloat32VectorForPgvector(queryEmbedding)
 
 	// Use pgvector for similarity search - database calculates similarity
+	// CTE-based queries for better performance with HNSW index
 	var dbQuery string
 	if searchThreads {
+		// Use CTE to first get top similar threads, then join with metadata
+		// This leverages the HNSW index before doing expensive JOINs
 		dbQuery = `
-			SELECT DISTINCT ON (ee.thread_id)
-			       ee.embedding::text, e.id, e.message_id, e.subject, e.from_addr, e.to_addr, 
+			WITH ranked_threads AS (
+				SELECT thread_id,
+				       1 - (embedding <=> $1::vector) AS similarity
+				FROM email_embeddings
+				WHERE thread_id IS NOT NULL
+				ORDER BY embedding <=> $1::vector
+				LIMIT $2
+			)
+			SELECT '' as embedding_str, e.id, e.message_id, e.subject, e.from_addr, e.to_addr,
 			       e.date, e.body, e.thread_id, e.is_customer,
 			       et.thread_id, et.subject, et.email_count, et.first_date, et.last_date,
-			       1 - (ee.embedding <=> $1::vector) AS similarity
-			FROM email_embeddings ee
-			JOIN email_threads et ON et.thread_id = ee.thread_id
-			JOIN emails e ON e.thread_id = et.thread_id
-			WHERE ee.thread_id IS NOT NULL
-			ORDER BY ee.thread_id, e.date DESC
+			       rt.similarity
+			FROM ranked_threads rt
+			JOIN email_threads et ON et.thread_id = rt.thread_id
+			JOIN LATERAL (
+				SELECT * FROM emails 
+				WHERE emails.thread_id = rt.thread_id 
+				ORDER BY date DESC 
+				LIMIT 1
+			) e ON true
+			ORDER BY rt.similarity DESC
 		`
 	} else {
 		dbQuery = `
@@ -682,8 +764,8 @@ func (ees *EmailEmbeddingService) SearchSimilarEmails(query string, limit int, s
 	var results []models.EmailSearchResult
 
 	if searchThreads {
-		// Thread search needs post-processing for DISTINCT ON
-		rowsResult, err := ees.db.GetDB().Query(dbQuery, queryVectorStr)
+		// Thread search with CTE - uses limit parameter
+		rowsResult, err := ees.db.GetDB().Query(dbQuery, queryVectorStr, limit)
 		if err != nil {
 			return nil, err
 		}
@@ -733,20 +815,7 @@ func (ees *EmailEmbeddingService) SearchSimilarEmails(query string, limit int, s
 
 			results = append(results, result)
 		}
-
-		// Sort thread results by similarity (needed because DISTINCT ON doesn't preserve ORDER BY)
-		for i := 0; i < len(results)-1; i++ {
-			for j := i + 1; j < len(results); j++ {
-				if results[i].Similarity < results[j].Similarity {
-					results[i], results[j] = results[j], results[i]
-				}
-			}
-		}
-
-		// Limit results
-		if limit > 0 && limit < len(results) {
-			results = results[:limit]
-		}
+		// Results are already sorted by similarity and limited by the CTE query
 	} else {
 		// Individual email search with pgvector ORDER BY
 		rowsResult, err := ees.db.GetDB().Query(dbQuery, queryVectorStr, limit)

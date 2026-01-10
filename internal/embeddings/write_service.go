@@ -14,6 +14,7 @@ import (
 	"ids/internal/models"
 	idsopenai "ids/internal/openai"
 	"ids/internal/utils"
+	"ids/internal/vectordb"
 )
 
 const (
@@ -73,13 +74,15 @@ const (
 
 // WriteEmbeddingService handles vector embeddings with write access
 type WriteEmbeddingService struct {
-	client  *idsopenai.Client     // Unified client with Azure/OpenAI fallback
-	readDB  *sql.DB               // Remote MySQL for reading products
-	writeDB *database.WriteClient // Local PostgreSQL for writing embeddings
+	client       *idsopenai.Client      // Unified client with Azure/OpenAI fallback
+	readDB       *sql.DB                // Remote MySQL for reading products
+	writeDB      *database.WriteClient  // Local PostgreSQL for writing embeddings
+	qdrantClient *vectordb.QdrantClient // Qdrant client for dual-write (optional)
 }
 
 // NewWriteEmbeddingService creates a new write-enabled embedding service
-func NewWriteEmbeddingService(cfg *config.Config, readDB *sql.DB, writeClient *database.WriteClient) (*WriteEmbeddingService, error) {
+// qdrantClient: Optional Qdrant client for dual-write (pass nil to disable)
+func NewWriteEmbeddingService(cfg *config.Config, readDB *sql.DB, writeClient *database.WriteClient, qdrantClient ...*vectordb.QdrantClient) (*WriteEmbeddingService, error) {
 	// Create unified client with Azure OpenAI (primary) and OpenAI (fallback)
 	client, err := idsopenai.NewClient(cfg)
 	if err != nil {
@@ -97,11 +100,24 @@ func NewWriteEmbeddingService(cfg *config.Config, readDB *sql.DB, writeClient *d
 	fmt.Printf("[WRITE_EMBEDDING_SERVICE] Using %s for embeddings (model: %s)\n",
 		client.GetProviderName(), client.GetEmbeddingModel())
 
-	return &WriteEmbeddingService{
+	service := &WriteEmbeddingService{
 		client:  client,
 		readDB:  readDB,
 		writeDB: writeClient,
-	}, nil
+	}
+
+	// Set Qdrant client if provided
+	if len(qdrantClient) > 0 && qdrantClient[0] != nil {
+		service.qdrantClient = qdrantClient[0]
+		fmt.Printf("[WRITE_EMBEDDING_SERVICE] Qdrant dual-write enabled\n")
+
+		// Ensure Qdrant collections exist
+		if err := service.qdrantClient.EnsureCollections(ctx); err != nil {
+			fmt.Printf("[WRITE_EMBEDDING_SERVICE] Warning: Failed to ensure Qdrant collections: %v\n", err)
+		}
+	}
+
+	return service, nil
 }
 
 // calculateProductChecksum calculates a SHA256 checksum for a product based on its content
@@ -413,6 +429,7 @@ func (wes *WriteEmbeddingService) buildProductText(product models.Product) strin
 }
 
 // storeEmbedding stores a product embedding with metadata in PostgreSQL using pgvector
+// Also writes to Qdrant if dual-write is enabled
 func (wes *WriteEmbeddingService) storeEmbedding(product models.Product, embedding []float64) error {
 	// Convert embedding to pgvector format
 	embeddingStr := FormatVectorForPgvector(embedding)
@@ -474,10 +491,48 @@ func (wes *WriteEmbeddingService) storeEmbedding(product models.Product, embeddi
 		tags,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to store embedding: %v", err)
+		return fmt.Errorf("failed to store embedding in PostgreSQL: %v", err)
+	}
+
+	// Dual-write to Qdrant if enabled
+	if wes.qdrantClient != nil {
+		// Convert float64 to float32 for Qdrant
+		embedding32 := make([]float32, len(embedding))
+		for i, v := range embedding {
+			embedding32[i] = float32(v)
+		}
+
+		payload := vectordb.ProductPayload{
+			ProductID:        product.ID,
+			PostTitle:        product.PostTitle,
+			PostName:         safeString(product.PostName),
+			SKU:              safeString(product.SKU),
+			StockStatus:      safeString(product.StockStatus),
+			MinPrice:         safeString(product.MinPrice),
+			MaxPrice:         safeString(product.MaxPrice),
+			Tags:             safeString(product.Tags),
+			Description:      safeString(product.Description),
+			ShortDescription: safeString(product.ShortDescription),
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := wes.qdrantClient.UpsertProduct(ctx, product.ID, embedding32, payload); err != nil {
+			// Log error but don't fail - PostgreSQL is the primary store
+			fmt.Printf("[WRITE_EMBEDDING_SERVICE] Warning: Failed to write to Qdrant: %v\n", err)
+		}
 	}
 
 	return nil
+}
+
+// safeString safely extracts string value from pointer, returning empty string if nil
+func safeString(ptr *string) string {
+	if ptr == nil {
+		return ""
+	}
+	return *ptr
 }
 
 // getStringValue safely extracts string value from pointer
@@ -541,7 +596,9 @@ func (wes *WriteEmbeddingService) CreateEmbeddingsTable() error {
 		`CREATE INDEX IF NOT EXISTS idx_product_checksums_product_id ON product_checksums(product_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_product_checksums_last_checked ON product_checksums(last_checked)`,
 		// HNSW index for fast cosine similarity search with pgvector
-		`CREATE INDEX IF NOT EXISTS idx_product_embeddings_hnsw ON product_embeddings USING hnsw (embedding vector_cosine_ops)`,
+		// m=16: number of connections per layer (higher = better recall, more memory)
+		// ef_construction=100: size of dynamic candidate list for construction (higher = better index quality, slower build)
+		`CREATE INDEX IF NOT EXISTS idx_product_embeddings_hnsw ON product_embeddings USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 100)`,
 	}
 	for _, indexQuery := range indexes {
 		if _, err := wes.writeDB.ExecuteWriteQuery(indexQuery); err != nil {

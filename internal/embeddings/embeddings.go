@@ -6,21 +6,26 @@ import (
 	"strings"
 	"time"
 
+	"ids/internal/cache"
 	"ids/internal/config"
 	"ids/internal/database"
 	"ids/internal/models"
 	idsopenai "ids/internal/openai"
 	"ids/internal/utils"
+	"ids/internal/vectordb"
 
 	"github.com/jmoiron/sqlx"
 )
 
 // EmbeddingService handles vector embeddings for products
 type EmbeddingService struct {
-	client      *idsopenai.Client     // Unified client with Azure/OpenAI fallback
-	db          *sqlx.DB              // MariaDB - only for reading product data when generating embeddings
-	writeClient *database.WriteClient // PostgreSQL - for searching embeddings
-	tagTokenSet map[string]struct{}
+	client        *idsopenai.Client     // Unified client with Azure/OpenAI fallback
+	db            *sqlx.DB              // MariaDB - only for reading product data when generating embeddings
+	writeClient   *database.WriteClient // PostgreSQL - for searching embeddings
+	tagTokenSet   map[string]struct{}
+	cache         *cache.Cache           // Query embedding cache
+	qdrantClient  *vectordb.QdrantClient // Qdrant client for vector search (optional)
+	qdrantEnabled bool                   // Feature flag for Qdrant search reads
 }
 
 // ProductEmbedding represents a product with its vector embedding
@@ -33,7 +38,8 @@ type ProductEmbedding struct {
 // NewEmbeddingService creates a new embedding service
 // db: MariaDB connection (only for reading product data when generating embeddings)
 // writeClient: PostgreSQL connection (for searching embeddings)
-func NewEmbeddingService(cfg *config.Config, db *sqlx.DB, writeClient *database.WriteClient) (*EmbeddingService, error) {
+// embeddingCache: Optional cache for query embeddings (can be nil)
+func NewEmbeddingService(cfg *config.Config, db *sqlx.DB, writeClient *database.WriteClient, embeddingCache ...*cache.Cache) (*EmbeddingService, error) {
 	// Create unified client with Azure OpenAI (primary) and OpenAI (fallback)
 	client, err := idsopenai.NewClient(cfg)
 	if err != nil {
@@ -57,6 +63,12 @@ func NewEmbeddingService(cfg *config.Config, db *sqlx.DB, writeClient *database.
 		writeClient: writeClient,
 	}
 
+	// Set cache if provided
+	if len(embeddingCache) > 0 && embeddingCache[0] != nil {
+		service.cache = embeddingCache[0]
+		fmt.Printf("[EMBEDDING_SERVICE] Query embedding cache enabled (TTL: %v)\n", cache.EmbeddingCacheTTL)
+	}
+
 	// Load tag tokens from MariaDB (only needed when generating embeddings)
 	if db != nil {
 		if err := service.loadTagTokens(); err != nil {
@@ -65,6 +77,17 @@ func NewEmbeddingService(cfg *config.Config, db *sqlx.DB, writeClient *database.
 	}
 
 	return service, nil
+}
+
+// SetQdrantClient sets the Qdrant client and enables Qdrant search
+func (es *EmbeddingService) SetQdrantClient(client *vectordb.QdrantClient, enabled bool) {
+	es.qdrantClient = client
+	es.qdrantEnabled = enabled
+	if client != nil && enabled {
+		fmt.Printf("[EMBEDDING_SERVICE] Qdrant search enabled\n")
+	} else if client != nil {
+		fmt.Printf("[EMBEDDING_SERVICE] Qdrant client set but search disabled (QDRANT_ENABLED=false)\n")
+	}
 }
 
 func (es *EmbeddingService) loadTagTokens() error {
@@ -304,24 +327,50 @@ func (es *EmbeddingService) storeEmbedding(product models.Product, embedding []f
 }
 
 // SearchSimilarProducts finds products similar to the query using pgvector similarity
+// Uses Qdrant if enabled (QDRANT_ENABLED=true), otherwise falls back to PostgreSQL pgvector
 func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]ProductEmbedding, bool, error) {
 	fmt.Printf("[PRODUCT_EMBEDDINGS] 🔍 Querying PRODUCT EMBEDDINGS datasource - Query: '%s', Limit: %d\n", query, limit)
 
-	// Generate embedding for the query using unified client
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	fmt.Printf("[VECTOR_SEARCH] Generating query embedding via %s...\n", es.client.GetProviderName())
-	embeddings, err := es.client.CreateEmbeddings(ctx, []string{query})
-	if err != nil {
-		fmt.Printf("[VECTOR_SEARCH] ERROR: Failed to generate query embedding: %v\n", err)
-		return nil, false, fmt.Errorf("failed to generate query embedding: %v", err)
+	// Try to get embedding from cache first
+	var queryEmbedding []float32
+	if es.cache != nil {
+		if cachedEmbedding, found := es.cache.GetEmbedding(query); found {
+			fmt.Printf("[VECTOR_SEARCH] ✓ Cache HIT - using cached query embedding\n")
+			queryEmbedding = cachedEmbedding
+		}
 	}
 
-	fmt.Printf("[VECTOR_SEARCH] Query embedding generated successfully (dimensions: %d)\n", len(embeddings[0]))
+	// Generate embedding if not in cache
+	if queryEmbedding == nil {
+		fmt.Printf("[VECTOR_SEARCH] Generating query embedding via %s...\n", es.client.GetProviderName())
+		embeddings, err := es.client.CreateEmbeddings(ctx, []string{query})
+		if err != nil {
+			fmt.Printf("[VECTOR_SEARCH] ERROR: Failed to generate query embedding: %v\n", err)
+			return nil, false, fmt.Errorf("failed to generate query embedding: %v", err)
+		}
+		queryEmbedding = embeddings[0]
 
+		// Store in cache for future requests
+		if es.cache != nil {
+			es.cache.SetEmbedding(query, queryEmbedding)
+			fmt.Printf("[VECTOR_SEARCH] ✓ Cached query embedding for future use\n")
+		}
+	}
+
+	fmt.Printf("[VECTOR_SEARCH] Query embedding ready (dimensions: %d)\n", len(queryEmbedding))
+
+	// Use Qdrant for search if enabled
+	if es.qdrantEnabled && es.qdrantClient != nil {
+		fmt.Printf("[PRODUCT_EMBEDDINGS] Using Qdrant for vector search...\n")
+		return es.searchWithQdrant(ctx, query, queryEmbedding, limit)
+	}
+
+	// Fall back to PostgreSQL pgvector
 	// Convert query embedding to pgvector format
-	queryVectorStr := FormatFloat32VectorForPgvector(embeddings[0])
+	queryVectorStr := FormatFloat32VectorForPgvector(queryEmbedding)
 
 	// Use pgvector for similarity search
 	fmt.Printf("[PRODUCT_EMBEDDINGS] Executing pgvector query on PostgreSQL...\n")
@@ -354,7 +403,7 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 	if len(results) > 0 {
 		fmt.Printf("[VECTOR_SEARCH] Top 5 most similar products:\n")
 		for i := 0; i < 5 && i < len(results); i++ {
-			stockStatus := "unknown"
+			stockStatus := stockStatusUnknown
 			if results[i].Product.StockStatus != nil {
 				stockStatus = *results[i].Product.StockStatus
 			}
@@ -373,6 +422,81 @@ func (es *EmbeddingService) SearchSimilarProducts(query string, limit int) ([]Pr
 	}
 
 	fmt.Printf("[PRODUCT_EMBEDDINGS] ✅ PRODUCT EMBEDDINGS query complete - Returning %d products (fallback=%t)\n", len(results), fallbackToSimilarity)
+	return results, fallbackToSimilarity, nil
+}
+
+// searchWithQdrant performs vector search using Qdrant
+func (es *EmbeddingService) searchWithQdrant(ctx context.Context, query string, queryEmbedding []float32, limit int) ([]ProductEmbedding, bool, error) {
+	// Fetch more results than requested to allow for token filtering
+	fetchLimit := limit * 3
+	if fetchLimit < 50 {
+		fetchLimit = 50
+	}
+
+	qdrantResults, err := es.qdrantClient.SearchProducts(ctx, queryEmbedding, fetchLimit)
+	if err != nil {
+		fmt.Printf("[PRODUCT_EMBEDDINGS] ❌ ERROR: Qdrant search failed: %v\n", err)
+		return nil, false, fmt.Errorf("qdrant search failed: %w", err)
+	}
+
+	fmt.Printf("[VECTOR_SEARCH] Qdrant returned %d products\n", len(qdrantResults))
+
+	// Convert Qdrant results to ProductEmbedding
+	var results []ProductEmbedding
+	for _, r := range qdrantResults {
+		// Build Product from Qdrant payload
+		postName := r.Payload.PostName
+		sku := r.Payload.SKU
+		stockStatus := r.Payload.StockStatus
+		minPrice := r.Payload.MinPrice
+		maxPrice := r.Payload.MaxPrice
+		tags := r.Payload.Tags
+		description := r.Payload.Description
+		shortDescription := r.Payload.ShortDescription
+
+		product := models.Product{
+			ID:               r.ProductID,
+			PostTitle:        r.Payload.PostTitle,
+			PostName:         &postName,
+			SKU:              &sku,
+			StockStatus:      &stockStatus,
+			MinPrice:         &minPrice,
+			MaxPrice:         &maxPrice,
+			Tags:             &tags,
+			Description:      &description,
+			ShortDescription: &shortDescription,
+		}
+
+		results = append(results, ProductEmbedding{
+			Product:    product,
+			Similarity: float64(r.Similarity),
+		})
+	}
+
+	// Log top 5 results for debugging
+	if len(results) > 0 {
+		fmt.Printf("[VECTOR_SEARCH] Top 5 most similar products (Qdrant):\n")
+		for i := 0; i < 5 && i < len(results); i++ {
+			stockStatus := stockStatusUnknown
+			if results[i].Product.StockStatus != nil {
+				stockStatus = *results[i].Product.StockStatus
+			}
+			fmt.Printf("  %d. %s (similarity: %.3f, stock: %s)\n",
+				i+1, results[i].Product.PostTitle, results[i].Similarity, stockStatus)
+		}
+	}
+
+	// Apply token filtering
+	requiredTokens := es.requiredTokensFromQuery(query)
+	fallbackToSimilarity := applyTokenFiltering(&results, requiredTokens, es.tagTokenSet)
+
+	// Return top results
+	if limit > 0 && limit < len(results) {
+		fmt.Printf("[VECTOR_SEARCH] Limiting results to top %d (from %d total)\n", limit, len(results))
+		results = results[:limit]
+	}
+
+	fmt.Printf("[PRODUCT_EMBEDDINGS] ✅ Qdrant search complete - Returning %d products (fallback=%t)\n", len(results), fallbackToSimilarity)
 	return results, fallbackToSimilarity, nil
 }
 

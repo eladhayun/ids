@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"ids/internal/analytics"
@@ -39,8 +40,8 @@ const stockStatusInStock = "instock"
 //
 //nolint:gocyclo // Handler has necessary complexity for validation, search, and response building
 func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embeddingService *embeddings.EmbeddingService, writeClient *database.WriteClient, analyticsService *analytics.Service, conversationService *database.ConversationService) echo.HandlerFunc {
-	// Create email embedding service
-	emailService, err := emails.NewEmailEmbeddingService(cfg, writeClient)
+	// Create email embedding service with shared cache
+	emailService, err := emails.NewEmailEmbeddingService(cfg, writeClient, cache)
 	if err != nil {
 		fmt.Printf("[CHAT] Warning: Failed to create email service: %v\n", err)
 		emailService = nil // Will skip email search if not available
@@ -113,23 +114,72 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embeddingS
 			})
 		}
 
-		// Search for similar products
-		fmt.Printf("[CHAT] 🔍 DATASOURCE: Starting PRODUCT EMBEDDINGS search for query: '%s'\n", userQuery)
+		// Run product and email searches in parallel for better performance
+		var (
+			similarProducts      []embeddings.ProductEmbedding
+			fallbackToSimilarity bool
+			productErr           error
+			similarEmails        []models.EmailSearchResult
+			emailErr             error
+			wg                   sync.WaitGroup
+		)
+
 		searchStart := time.Now()
-		similarProducts, fallbackToSimilarity, err := embeddingService.SearchSimilarProducts(userQuery, 20)
-		searchDuration := time.Since(searchStart)
-		if err != nil {
-			fmt.Printf("[CHAT] ❌ ERROR: Product embeddings search failed: %v (took %v)\n", err, searchDuration)
-			return c.JSON(http.StatusInternalServerError, models.ChatResponse{
-				Error: fmt.Sprintf("Failed to search products: %v", err),
-			})
+
+		// Product search goroutine
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			fmt.Printf("[CHAT] 🔍 DATASOURCE: Starting PRODUCT EMBEDDINGS search for query: '%s'\n", userQuery)
+			productStart := time.Now()
+			similarProducts, fallbackToSimilarity, productErr = embeddingService.SearchSimilarProducts(userQuery, 20)
+			productDuration := time.Since(productStart)
+			if productErr != nil {
+				fmt.Printf("[CHAT] ❌ ERROR: Product embeddings search failed: %v (took %v)\n", productErr, productDuration)
+			} else {
+				fmt.Printf("[CHAT] ✅ DATASOURCE: PRODUCT EMBEDDINGS search completed - Found %d products (took %v, fallback=%t)\n", len(similarProducts), productDuration, fallbackToSimilarity)
+				// Track query embedding (billable - 1 embedding per product search)
+				if analyticsService != nil {
+					go func() { _ = analyticsService.TrackQueryEmbedding("product_search", "text-embedding-3-small") }()
+				}
+			}
+		}()
+
+		// Email search goroutine (if enabled)
+		if cfg.EnableEmailContext && emailService != nil {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				fmt.Printf("[CHAT] 🔍 DATASOURCE: Starting EMAIL EMBEDDINGS search for query: '%s'\n", userQuery)
+				emailStart := time.Now()
+				similarEmails, emailErr = emailService.SearchSimilarEmails(userQuery, 5, true) // Search threads
+				emailDuration := time.Since(emailStart)
+				if emailErr != nil {
+					fmt.Printf("[CHAT] ❌ ERROR: Email embeddings search failed: %v (took %v)\n", emailErr, emailDuration)
+				} else {
+					fmt.Printf("[CHAT] ✅ DATASOURCE: EMAIL EMBEDDINGS search completed - Found %d similar email threads (took %v)\n", len(similarEmails), emailDuration)
+					// Track query embedding (billable - 1 embedding per email search)
+					if analyticsService != nil {
+						go func() { _ = analyticsService.TrackQueryEmbedding("email_search", "text-embedding-3-small") }()
+					}
+				}
+			}()
+		} else if !cfg.EnableEmailContext {
+			fmt.Printf("[CHAT] ⚠️  DATASOURCE: EMAIL EMBEDDINGS search skipped - Email context disabled in config\n")
+		} else if emailService == nil {
+			fmt.Printf("[CHAT] ⚠️  DATASOURCE: EMAIL EMBEDDINGS search skipped - Email service not available\n")
 		}
 
-		fmt.Printf("[CHAT] ✅ DATASOURCE: PRODUCT EMBEDDINGS search completed - Found %d products (took %v, fallback=%t)\n", len(similarProducts), searchDuration, fallbackToSimilarity)
+		// Wait for both searches to complete
+		wg.Wait()
+		totalSearchDuration := time.Since(searchStart)
+		fmt.Printf("[CHAT] 🏁 All searches completed in %v (parallel execution)\n", totalSearchDuration)
 
-		// Track query embedding (billable - 1 embedding per product search)
-		if analyticsService != nil {
-			go func() { _ = analyticsService.TrackQueryEmbedding("product_search", "text-embedding-3-small") }()
+		// Check for product search error
+		if productErr != nil {
+			return c.JSON(http.StatusInternalServerError, models.ChatResponse{
+				Error: fmt.Sprintf("Failed to search products: %v", productErr),
+			})
 		}
 
 		// Filter to in-stock products
@@ -145,28 +195,6 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embeddingS
 		}
 
 		fmt.Printf("[CHAT] %d in-stock products\n", len(inStockProducts))
-
-		// Search for similar email conversations (if enabled)
-		var similarEmails []models.EmailSearchResult
-		if cfg.EnableEmailContext && emailService != nil {
-			fmt.Printf("[CHAT] 🔍 DATASOURCE: Starting EMAIL EMBEDDINGS search for query: '%s'\n", userQuery)
-			emailSearchStart := time.Now()
-			similarEmails, err = emailService.SearchSimilarEmails(userQuery, 5, true) // Search threads
-			emailSearchDuration := time.Since(emailSearchStart)
-			if err != nil {
-				fmt.Printf("[CHAT] ❌ ERROR: Email embeddings search failed: %v (took %v)\n", err, emailSearchDuration)
-			} else {
-				fmt.Printf("[CHAT] ✅ DATASOURCE: EMAIL EMBEDDINGS search completed - Found %d similar email threads (took %v)\n", len(similarEmails), emailSearchDuration)
-				// Track query embedding (billable - 1 embedding per email search)
-				if analyticsService != nil {
-					go func() { _ = analyticsService.TrackQueryEmbedding("email_search", "text-embedding-3-small") }()
-				}
-			}
-		} else if !cfg.EnableEmailContext {
-			fmt.Printf("[CHAT] ⚠️  DATASOURCE: EMAIL EMBEDDINGS search skipped - Email context disabled in config\n")
-		} else if emailService == nil {
-			fmt.Printf("[CHAT] ⚠️  DATASOURCE: EMAIL EMBEDDINGS search skipped - Email service not available\n")
-		}
 
 		// Create product metadata for frontend
 		productMetadata := make(map[string]string)

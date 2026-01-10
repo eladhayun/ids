@@ -46,13 +46,17 @@ func New(cfg *config.Config, db *sqlx.DB, logger zerolog.Logger) *Server {
 		}
 	}
 
+	// Initialize cache for query embeddings
+	embeddingCache := cache.New()
+	logger.Info().Msg("Query embedding cache initialized")
+
 	// Initialize embedding service if OpenAI API key is available
 	// Note: db (MariaDB) is only used for reading product data when generating embeddings
 	// writeClient (PostgreSQL) is used for searching embeddings
 	var embeddingService *embeddings.EmbeddingService
 	if cfg.OpenAIKey != "" && writeClient != nil {
 		var err error
-		embeddingService, err = embeddings.NewEmbeddingService(cfg, db, writeClient)
+		embeddingService, err = embeddings.NewEmbeddingService(cfg, db, writeClient, embeddingCache)
 		if err != nil {
 			logger.Warn().Err(err).Msg("Failed to initialize embedding service, falling back to regular chat")
 		} else {
@@ -92,7 +96,7 @@ func New(cfg *config.Config, db *sqlx.DB, logger zerolog.Logger) *Server {
 		db:                  db,
 		writeClient:         writeClient,
 		logger:              logger,
-		cache:               cache.New(),
+		cache:               embeddingCache,
 		embeddingService:    embeddingService,
 		analyticsService:    analyticsService,
 		conversationService: conversationService,
