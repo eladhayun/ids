@@ -3,6 +3,7 @@ package vectordb
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -62,17 +63,26 @@ type EmailSearchResult struct {
 }
 
 // NewQdrantClient creates a new Qdrant client
-// url can be in format "hostname" or "hostname:port" (port is ignored, always uses 6334 for gRPC)
+// url can be in format "hostname" or "hostname:port" (port is extracted if present, otherwise uses 6334)
 func NewQdrantClient(url string) (*QdrantClient, error) {
-	// Extract hostname from URL (remove port if present)
+	// Extract hostname and port from URL
 	hostname := url
+	port := 6334 // Default gRPC port
+
 	if idx := strings.Index(url, ":"); idx > 0 {
 		hostname = url[:idx]
+		// Extract port if present (though we always use 6334 for gRPC)
+		portStr := url[idx+1:]
+		if parsedPort, err := strconv.Atoi(portStr); err == nil {
+			port = parsedPort
+		}
 	}
+
+	fmt.Printf("[QDRANT] Creating client with hostname: %s, port: %d\n", hostname, port)
 
 	client, err := qdrant.NewClient(&qdrant.Config{
 		Host: hostname,
-		Port: 6334, // gRPC port
+		Port: port,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Qdrant client: %w", err)
