@@ -3,6 +3,7 @@ package vectordb
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/qdrant/go-client/qdrant"
@@ -61,9 +62,16 @@ type EmailSearchResult struct {
 }
 
 // NewQdrantClient creates a new Qdrant client
+// url can be in format "hostname" or "hostname:port" (port is ignored, always uses 6334 for gRPC)
 func NewQdrantClient(url string) (*QdrantClient, error) {
+	// Extract hostname from URL (remove port if present)
+	hostname := url
+	if idx := strings.Index(url, ":"); idx > 0 {
+		hostname = url[:idx]
+	}
+
 	client, err := qdrant.NewClient(&qdrant.Config{
-		Host: url,
+		Host: hostname,
 		Port: 6334, // gRPC port
 	})
 	if err != nil {
