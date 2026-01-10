@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"ids/internal/analytics"
 	"ids/internal/config"
 	"ids/internal/database"
 	"ids/internal/embeddings"
+	"ids/internal/vectordb"
 	"log"
 	"os"
 	"os/signal"
@@ -142,7 +144,30 @@ func isQuotaError(err error) bool {
 // initializeEmbeddingService initializes the embedding service with quota error handling
 func initializeEmbeddingService(cfg *config.Config, readDB *sqlx.DB, writeClient *database.WriteClient, runOnce bool) *embeddings.WriteEmbeddingService {
 	fmt.Println("Initializing embedding service...")
-	embeddingService, err := embeddings.NewWriteEmbeddingService(cfg, readDB.DB, writeClient)
+
+	// Initialize Qdrant client if URL is configured
+	var qdrantClient *vectordb.QdrantClient
+	if cfg.QdrantURL != "" {
+		fmt.Printf("Initializing Qdrant client at %s...\n", cfg.QdrantURL)
+		var err error
+		qdrantClient, err = vectordb.NewQdrantClient(cfg.QdrantURL)
+		if err != nil {
+			log.Printf("WARNING: Failed to initialize Qdrant client: %v. Continuing without dual-write.", err)
+			qdrantClient = nil
+		} else {
+			// Test Qdrant connection
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := qdrantClient.HealthCheck(ctx); err != nil {
+				log.Printf("WARNING: Qdrant health check failed: %v. Continuing without dual-write.", err)
+				qdrantClient = nil
+			} else {
+				fmt.Println("Qdrant client initialized successfully (dual-write enabled)")
+			}
+		}
+	}
+
+	embeddingService, err := embeddings.NewWriteEmbeddingService(cfg, readDB.DB, writeClient, qdrantClient)
 	if err != nil {
 		if isQuotaError(err) {
 			log.Printf("WARNING: OpenAI API quota exceeded. Embedding generation skipped. Error: %v", err)
@@ -243,7 +268,30 @@ func handleScheduledGeneration(cfg *config.Config, readDB *sqlx.DB, writeClient 
 // reinitializeEmbeddingService re-initializes the embedding service
 func reinitializeEmbeddingService(cfg *config.Config, readDB *sqlx.DB, writeClient *database.WriteClient) *embeddings.WriteEmbeddingService {
 	fmt.Println("Re-initializing embedding service...")
-	embeddingService, err := embeddings.NewWriteEmbeddingService(cfg, readDB.DB, writeClient)
+
+	// Initialize Qdrant client if URL is configured
+	var qdrantClient *vectordb.QdrantClient
+	if cfg.QdrantURL != "" {
+		fmt.Printf("Re-initializing Qdrant client at %s...\n", cfg.QdrantURL)
+		var err error
+		qdrantClient, err = vectordb.NewQdrantClient(cfg.QdrantURL)
+		if err != nil {
+			log.Printf("WARNING: Failed to re-initialize Qdrant client: %v. Continuing without dual-write.", err)
+			qdrantClient = nil
+		} else {
+			// Test Qdrant connection
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := qdrantClient.HealthCheck(ctx); err != nil {
+				log.Printf("WARNING: Qdrant health check failed: %v. Continuing without dual-write.", err)
+				qdrantClient = nil
+			} else {
+				fmt.Println("Qdrant client re-initialized successfully (dual-write enabled)")
+			}
+		}
+	}
+
+	embeddingService, err := embeddings.NewWriteEmbeddingService(cfg, readDB.DB, writeClient, qdrantClient)
 	if err != nil {
 		if isQuotaError(err) {
 			log.Printf("WARNING: OpenAI API quota still exceeded. Skipping this run. Error: %v", err)

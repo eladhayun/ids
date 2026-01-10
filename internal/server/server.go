@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"time"
 
 	"ids/internal/analytics"
@@ -10,6 +11,7 @@ import (
 	"ids/internal/database"
 	"ids/internal/embeddings"
 	"ids/internal/handlers"
+	"ids/internal/vectordb"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
@@ -61,6 +63,28 @@ func New(cfg *config.Config, db *sqlx.DB, logger zerolog.Logger) *Server {
 			logger.Warn().Err(err).Msg("Failed to initialize embedding service, falling back to regular chat")
 		} else {
 			logger.Info().Msg("Embedding service initialized successfully (PostgreSQL for search, MariaDB for generation)")
+
+			// Initialize Qdrant client for search if configured
+			if cfg.QdrantURL != "" {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+
+				qdrantClient, err := vectordb.NewQdrantClient(cfg.QdrantURL)
+				if err != nil {
+					logger.Warn().Err(err).Str("url", cfg.QdrantURL).Msg("Failed to initialize Qdrant client, falling back to PostgreSQL")
+				} else if err := qdrantClient.HealthCheck(ctx); err != nil {
+					logger.Warn().Err(err).Msg("Qdrant health check failed, falling back to PostgreSQL")
+					_ = qdrantClient.Close()
+					qdrantClient = nil
+				} else {
+					embeddingService.SetQdrantClient(qdrantClient, cfg.QdrantEnabled)
+					if cfg.QdrantEnabled {
+						logger.Info().Str("url", cfg.QdrantURL).Msg("Qdrant search enabled")
+					} else {
+						logger.Info().Str("url", cfg.QdrantURL).Msg("Qdrant client initialized but search disabled (dual-write enabled)")
+					}
+				}
+			}
 		}
 	}
 
