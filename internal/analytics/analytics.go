@@ -373,6 +373,12 @@ func (s *Service) GetDailyReport() (*models.AnalyticsSummary, error) {
 	return s.GetSummary(PeriodYesterday)
 }
 
+// GetWeeklyReport generates a weekly report suitable for Slack notifications
+func (s *Service) GetWeeklyReport() (*models.AnalyticsSummary, error) {
+	// Get the last 7 days of data
+	return s.GetSummary(PeriodLast7Days)
+}
+
 // hashEmail creates a simple hash of an email for privacy
 func hashEmail(email string) string {
 	if len(email) < 3 {

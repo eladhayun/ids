@@ -215,6 +215,7 @@ func (s *Server) setupRoutes() {
 	if s.analyticsService != nil {
 		api.GET("/analytics", handlers.AnalyticsHandler(s.analyticsService))
 		api.GET("/analytics/daily-report", handlers.DailyReportHandler(s.analyticsService))
+		api.GET("/analytics/weekly-report", handlers.WeeklyReportHandler(s.analyticsService, s.config))
 	}
 
 	// Admin endpoints
