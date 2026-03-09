@@ -89,7 +89,7 @@ func SupportRequestHandler(cfg *config.Config, analyticsService *analytics.Servi
 		fullConversation := formatConversation(req.Conversation)
 
 		// Send email via email service
-		emailService := email.NewEmailService(cfg.SendGridAPIKey, cfg.SupportEmail)
+		emailService := email.NewEmailService(cfg.ACSConnectionString, cfg.SupportEmail)
 		emailHTML, err := emailService.SendSupportEscalationEmail(req.CustomerEmail, summary, fullConversation)
 		if err != nil {
 			fmt.Printf("[SUPPORT] ERROR: Failed to send email: %v\n", err)
@@ -146,7 +146,7 @@ func summarizeConversation(openAIKey string, conversation []models.ConversationM
 			strings.Contains(strings.ToLower(msg.Role), "ai") {
 			role = roleAssistant
 		}
-		conversationText.WriteString(fmt.Sprintf("%s: %s\n", role, msg.Message))
+		fmt.Fprintf(&conversationText, "%s: %s\n", role, msg.Message)
 	}
 
 	// Create summary prompt
@@ -207,13 +207,13 @@ func generateBasicSummary(conversation []models.ConversationMessage) string {
 		if strings.Contains(strings.ToLower(msg.Role), "user") {
 			userMessages++
 			if userMessages <= 3 {
-				summary.WriteString(fmt.Sprintf("- %s\n", msg.Message))
+				fmt.Fprintf(&summary, "- %s\n", msg.Message)
 			}
 		}
 	}
 
 	if userMessages > 3 {
-		summary.WriteString(fmt.Sprintf("\n... and %d more messages\n", userMessages-3))
+		fmt.Fprintf(&summary, "\n... and %d more messages\n", userMessages-3)
 	}
 
 	return summary.String()
@@ -233,7 +233,7 @@ func formatConversation(conversation []models.ConversationMessage) string {
 			role = roleAssistant
 		}
 
-		formatted.WriteString(fmt.Sprintf("[Message %d] %s:\n", i+1, role))
+		fmt.Fprintf(&formatted, "[Message %d] %s:\n", i+1, role)
 		formatted.WriteString(msg.Message)
 		formatted.WriteString("\n\n")
 	}

@@ -404,17 +404,17 @@ IMPORTANT:
 	productContext.WriteString("\n\n=== RELEVANT PRODUCTS ===\n")
 	for i, product := range products {
 		if i >= 15 {
-			productContext.WriteString(fmt.Sprintf("\n... and %d more products available", len(products)-15))
+			fmt.Fprintf(&productContext, "\n... and %d more products available", len(products)-15)
 			break
 		}
 
-		productContext.WriteString(fmt.Sprintf("\n**%s**", product.Product.PostTitle))
+		fmt.Fprintf(&productContext, "\n**%s**", product.Product.PostTitle)
 
 		if product.Product.MinPrice != nil && product.Product.MaxPrice != nil {
 			if *product.Product.MinPrice == *product.Product.MaxPrice {
-				productContext.WriteString(fmt.Sprintf(" - $%s", *product.Product.MinPrice))
+				fmt.Fprintf(&productContext, " - $%s", *product.Product.MinPrice)
 			} else {
-				productContext.WriteString(fmt.Sprintf(" - $%s-$%s", *product.Product.MinPrice, *product.Product.MaxPrice))
+				fmt.Fprintf(&productContext, " - $%s-$%s", *product.Product.MinPrice, *product.Product.MaxPrice)
 			}
 		}
 
@@ -426,16 +426,16 @@ IMPORTANT:
 			}
 		}
 
-		productContext.WriteString(fmt.Sprintf(" - Similarity: %.2f", product.Similarity))
+		fmt.Fprintf(&productContext, " - Similarity: %.2f", product.Similarity)
 
 		if product.Product.Tags != nil && *product.Product.Tags != "" {
-			productContext.WriteString(fmt.Sprintf(" - Tags: %s", *product.Product.Tags))
+			fmt.Fprintf(&productContext, " - Tags: %s", *product.Product.Tags)
 		}
 
 		if product.Product.PostName != nil && *product.Product.PostName != "" {
-			productContext.WriteString(fmt.Sprintf(" - URL: https://israeldefensestore.com/product/%s", *product.Product.PostName))
+			fmt.Fprintf(&productContext, " - URL: https://israeldefensestore.com/product/%s", *product.Product.PostName)
 		} else {
-			productContext.WriteString(fmt.Sprintf(" - URL: https://israeldefensestore.com/?p=%d", product.Product.ID))
+			fmt.Fprintf(&productContext, " - URL: https://israeldefensestore.com/?p=%d", product.Product.ID)
 		}
 	}
 
@@ -451,7 +451,7 @@ IMPORTANT:
 			}
 
 			if result.Thread != nil {
-				emailContext.WriteString(fmt.Sprintf("\n--- Thread: %s (Similarity: %.2f) ---\n", result.Thread.Subject, result.Similarity))
+				fmt.Fprintf(&emailContext, "\n--- Thread: %s (Similarity: %.2f) ---\n", result.Thread.Subject, result.Similarity)
 
 				// Fetch thread emails
 				threadEmails, err := getThreadEmails(result.Thread.ThreadID)
@@ -471,7 +471,7 @@ IMPORTANT:
 							body = body[:300] + "..."
 						}
 
-						emailContext.WriteString(fmt.Sprintf("%s: %s\n", role, body))
+						fmt.Fprintf(&emailContext, "%s: %s\n", role, body)
 					}
 				}
 			}

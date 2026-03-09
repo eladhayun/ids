@@ -1,73 +1,176 @@
 package email
 
 import (
+	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"html"
+	"io"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"ids/internal/models"
-
-	"github.com/sendgrid/sendgrid-go"
-	"github.com/sendgrid/sendgrid-go/helpers/mail"
 )
 
 const (
 	roleUser      = "User"
 	roleAssistant = "Assistant"
+	acsAPIVersion = "2023-03-31"
 )
 
-// EmailService handles sending emails via SendGrid
+// EmailService handles sending emails via Azure Communication Services
 type EmailService struct {
-	apiKey       string
+	endpoint     string
+	accessKey    string
 	supportEmail string
 }
 
-// NewEmailService creates a new email service instance
-func NewEmailService(apiKey, supportEmail string) *EmailService {
+// NewEmailService creates a new email service instance from an ACS connection string
+func NewEmailService(connectionString, supportEmail string) *EmailService {
 	if supportEmail == "" {
 		supportEmail = "support@israeldefensestore.com"
 	}
+
+	endpoint, accessKey := parseACSConnectionString(connectionString)
+
 	return &EmailService{
-		apiKey:       apiKey,
+		endpoint:     endpoint,
+		accessKey:    accessKey,
 		supportEmail: supportEmail,
 	}
 }
 
-// SendSupportEscalationEmail sends an email to support with conversation summary
-func (es *EmailService) SendSupportEscalationEmail(customerEmail, summary, fullConversation string) (string, error) {
-	if es.apiKey == "" {
-		return "", fmt.Errorf("SendGrid API key not configured")
+// parseACSConnectionString extracts endpoint and accesskey from a connection string
+// Format: "endpoint=https://xxx.communication.azure.com/;accesskey=base64key"
+func parseACSConnectionString(connStr string) (string, string) {
+	var endpoint, accessKey string
+	for _, part := range strings.Split(connStr, ";") {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(strings.ToLower(part), "endpoint=") {
+			endpoint = strings.TrimRight(strings.TrimPrefix(part, part[:len("endpoint=")]), "/")
+		} else if strings.HasPrefix(strings.ToLower(part), "accesskey=") {
+			accessKey = part[len("accesskey="):]
+		}
+	}
+	return endpoint, accessKey
+}
+
+// acsEmailRequest represents the ACS Email send request body
+type acsEmailRequest struct {
+	SenderAddress string          `json:"senderAddress"`
+	Recipients    acsRecipients   `json:"recipients"`
+	Content       acsEmailContent `json:"content"`
+}
+
+type acsRecipients struct {
+	To []acsEmailAddress `json:"to"`
+	CC []acsEmailAddress `json:"cc,omitempty"`
+}
+
+type acsEmailAddress struct {
+	Address     string `json:"address"`
+	DisplayName string `json:"displayName,omitempty"`
+}
+
+type acsEmailContent struct {
+	Subject   string `json:"subject"`
+	PlainText string `json:"plainText,omitempty"`
+	HTML      string `json:"html,omitempty"`
+}
+
+// sendEmail sends an email via Azure Communication Services REST API
+func (es *EmailService) sendEmail(req acsEmailRequest) error {
+	if es.endpoint == "" || es.accessKey == "" {
+		return fmt.Errorf("ACS connection string not configured")
 	}
 
-	from := mail.NewEmail("IDS Chat System", "support@israeldefensestore.com")
-	to := mail.NewEmail("Support Team", es.supportEmail)
-	cc := mail.NewEmail("Customer", customerEmail)
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("failed to marshal email request: %w", err)
+	}
 
+	pathAndQuery := "/emails:send?api-version=" + acsAPIVersion
+	requestURL := es.endpoint + pathAndQuery
+
+	httpReq, err := http.NewRequest("POST", requestURL, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Parse host from endpoint
+	parsedURL, err := url.Parse(es.endpoint)
+	if err != nil {
+		return fmt.Errorf("failed to parse endpoint URL: %w", err)
+	}
+
+	// HMAC-SHA256 authentication
+	dateStr := time.Now().UTC().Format(http.TimeFormat)
+	contentHash := computeContentHash(body)
+	signature := es.computeSignature("POST", pathAndQuery, dateStr, parsedURL.Host, contentHash)
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-ms-date", dateStr)
+	httpReq.Header.Set("x-ms-content-sha256", contentHash)
+	httpReq.Header.Set("Authorization", fmt.Sprintf(
+		"HMAC-SHA256 SignedHeaders=x-ms-date;host;x-ms-content-sha256&Signature=%s", signature,
+	))
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("failed to send email request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode >= 400 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("ACS Email API error: status %d, body: %s", resp.StatusCode, string(respBody))
+	}
+
+	return nil
+}
+
+func computeContentHash(content []byte) string {
+	hash := sha256.Sum256(content)
+	return base64.StdEncoding.EncodeToString(hash[:])
+}
+
+func (es *EmailService) computeSignature(method, pathAndQuery, date, host, contentHash string) string {
+	stringToSign := fmt.Sprintf("%s\n%s\n%s;%s;%s", method, pathAndQuery, date, host, contentHash)
+	decodedKey, _ := base64.StdEncoding.DecodeString(es.accessKey)
+	mac := hmac.New(sha256.New, decodedKey)
+	mac.Write([]byte(stringToSign))
+	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
+}
+
+// SendSupportEscalationEmail sends an email to support with conversation summary
+func (es *EmailService) SendSupportEscalationEmail(customerEmail, summary, fullConversation string) (string, error) {
 	subject := "🎫 Support Escalation - Chat Request"
 	timestamp := time.Now().Format("January 2, 2006 at 3:04 PM MST")
 
-	// Generate plain text version for fallback
 	plainText := generatePlainTextEmail(customerEmail, timestamp, summary, fullConversation)
-
-	// Generate HTML version with styling
 	htmlContent := generateHTMLEmail(customerEmail, timestamp, summary, fullConversation)
 
-	message := mail.NewSingleEmail(from, subject, to, plainText, htmlContent)
-
-	// Add CC recipient using Personalizations
-	if len(message.Personalizations) > 0 {
-		message.Personalizations[0].AddCCs(cc)
+	req := acsEmailRequest{
+		SenderAddress: es.supportEmail,
+		Recipients: acsRecipients{
+			To: []acsEmailAddress{{Address: es.supportEmail, DisplayName: "Support Team"}},
+			CC: []acsEmailAddress{{Address: customerEmail, DisplayName: "Customer"}},
+		},
+		Content: acsEmailContent{
+			Subject:   subject,
+			PlainText: plainText,
+			HTML:      htmlContent,
+		},
 	}
 
-	client := sendgrid.NewSendClient(es.apiKey)
-	response, err := client.Send(message)
-	if err != nil {
-		return htmlContent, fmt.Errorf("failed to send email: %w", err)
-	}
-
-	if response.StatusCode >= 400 {
-		return htmlContent, fmt.Errorf("SendGrid API error: status %d, body: %s", response.StatusCode, response.Body)
+	if err := es.sendEmail(req); err != nil {
+		return htmlContent, err
 	}
 
 	return htmlContent, nil
@@ -224,11 +327,6 @@ const (
 
 // SendWeeklyAnalyticsEmail sends the weekly analytics report to the given recipients
 func (es *EmailService) SendWeeklyAnalyticsEmail(summary *models.AnalyticsSummary, recipients []string) error {
-	if es.apiKey == "" {
-		return fmt.Errorf("SendGrid API key not configured")
-	}
-
-	from := mail.NewEmail("IDS Analytics", "support@israeldefensestore.com")
 	subject := fmt.Sprintf("📊 IDS Weekly Analytics Report — %s to %s",
 		summary.StartDate.Format("Jan 2"),
 		summary.EndDate.Format("Jan 2, 2006"),
@@ -237,20 +335,24 @@ func (es *EmailService) SendWeeklyAnalyticsEmail(summary *models.AnalyticsSummar
 	plainText := generateWeeklyReportPlainText(summary)
 	htmlContent := generateWeeklyReportHTML(summary)
 
-	for _, recipient := range recipients {
-		to := mail.NewEmail("", recipient)
-		message := mail.NewSingleEmail(from, subject, to, plainText, htmlContent)
-		client := sendgrid.NewSendClient(es.apiKey)
-		response, err := client.Send(message)
-		if err != nil {
-			return fmt.Errorf("failed to send weekly report to %s: %w", recipient, err)
-		}
-		if response.StatusCode >= 400 {
-			return fmt.Errorf("SendGrid API error sending to %s: status %d, body: %s", recipient, response.StatusCode, response.Body)
-		}
+	toAddresses := make([]acsEmailAddress, len(recipients))
+	for i, r := range recipients {
+		toAddresses[i] = acsEmailAddress{Address: r}
 	}
 
-	return nil
+	req := acsEmailRequest{
+		SenderAddress: es.supportEmail,
+		Recipients: acsRecipients{
+			To: toAddresses,
+		},
+		Content: acsEmailContent{
+			Subject:   subject,
+			PlainText: plainText,
+			HTML:      htmlContent,
+		},
+	}
+
+	return es.sendEmail(req)
 }
 
 // generateWeeklyReportPlainText creates the plain text fallback for the weekly report email
@@ -295,7 +397,7 @@ Support Summarizations:
   Cost:   ~$%.4f
 
 Query Embeddings:   %d queries  (~$%.4f)
-SendGrid Emails:    %d sent
+Emails Sent:        %d sent
 
 Total Est. OpenAI Cost: $%.4f
 
@@ -529,7 +631,7 @@ func generateWeeklyReportHTML(s *models.AnalyticsSummary) string {
                                     <td style="padding: 8px 12px; font-weight: 600; color: #1e293b; text-align: right; font-size: 13px;">%d (~$%.4f)</td>
                                 </tr>
                                 <tr style="border-top: 1px solid #f1f5f9;">
-                                    <td style="padding: 8px 12px; color: #64748b; font-size: 13px;">📤 SendGrid Emails</td>
+                                    <td style="padding: 8px 12px; color: #64748b; font-size: 13px;">📤 Emails Sent</td>
                                     <td style="padding: 8px 12px; font-weight: 600; color: #1e293b; text-align: right; font-size: 13px;">%d sent</td>
                                 </tr>
                             </table>
@@ -663,7 +765,7 @@ func formatConversationHTML(conversation string) string {
 		escapedMsg = strings.ReplaceAll(escapedMsg, "\n", "<br>")
 
 		if currentRole == roleUser {
-			result.WriteString(fmt.Sprintf(`
+			fmt.Fprintf(&result, `
                 <div style="margin-bottom: 15px;">
                     <div style="display: flex; align-items: center; margin-bottom: 5px;">
                         <span style="background-color: #3b82f6; color: white; width: 28px; height: 28px; border-radius: 50%%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; margin-right: 8px;">C</span>
@@ -673,9 +775,9 @@ func formatConversationHTML(conversation string) string {
                     <div style="background-color: #dbeafe; border-radius: 12px; padding: 12px 16px; margin-left: 36px; color: #1e3a8a; font-size: 14px; line-height: 1.5;">
                         %s
                     </div>
-                </div>`, messageCount, escapedMsg))
+                </div>`, messageCount, escapedMsg)
 		} else {
-			result.WriteString(fmt.Sprintf(`
+			fmt.Fprintf(&result, `
                 <div style="margin-bottom: 15px;">
                     <div style="display: flex; align-items: center; margin-bottom: 5px;">
                         <span style="background-color: #10b981; color: white; width: 28px; height: 28px; border-radius: 50%%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; margin-right: 8px;">A</span>
@@ -685,7 +787,7 @@ func formatConversationHTML(conversation string) string {
                     <div style="background-color: #d1fae5; border-radius: 12px; padding: 12px 16px; margin-left: 36px; color: #064e3b; font-size: 14px; line-height: 1.5;">
                         %s
                     </div>
-                </div>`, messageCount, escapedMsg))
+                </div>`, messageCount, escapedMsg)
 		}
 		currentMessage.Reset()
 	}

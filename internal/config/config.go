@@ -22,7 +22,7 @@ type Config struct {
 	OpenAITimeout          int    // OpenAI API timeout in seconds
 	EmbeddingScheduleHours int    // Embedding generation schedule interval in hours
 	EnableEmailContext     bool   // Whether to include email history in chat responses
-	SendGridAPIKey         string // SendGrid API key for sending support escalation emails
+	ACSConnectionString    string // Azure Communication Services connection string for sending emails
 	SupportEmail           string // Support email address (default: support@israeldefensestore.com)
 
 	// Azure OpenAI Configuration (primary provider - falls back to OpenAI if not configured)
@@ -61,7 +61,7 @@ func Load() *Config {
 		OpenAITimeout:          getEnvInt("OPENAI_TIMEOUT", 60),                           // Default 60 seconds
 		EmbeddingScheduleHours: getEnvInt("EMBEDDING_SCHEDULE_INTERVAL_HOURS", 168),       // Default 168 hours (1 week)
 		EnableEmailContext:     getEnvBool("ENABLE_EMAIL_CONTEXT", true),                  // Default true to use email history
-		SendGridAPIKey:         os.Getenv("SENDGRID_API_KEY"),                             // SendGrid API key for support emails
+		ACSConnectionString:    os.Getenv("ACS_CONNECTION_STRING"),                        // Azure Communication Services for emails
 		SupportEmail:           getEnv("SUPPORT_EMAIL", "support@israeldefensestore.com"), // Support email address
 
 		// Azure OpenAI (primary) - falls back to OpenAI if not configured

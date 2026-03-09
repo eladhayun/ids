@@ -125,7 +125,7 @@ func WeeklyReportHandler(analyticsService *analytics.Service, cfg *config.Config
 
 		// Send email digest in the background
 		go func() {
-			emailService := email.NewEmailService(cfg.SendGridAPIKey, cfg.SupportEmail)
+			emailService := email.NewEmailService(cfg.ACSConnectionString, cfg.SupportEmail)
 			if err := emailService.SendWeeklyAnalyticsEmail(summary, weeklyReportRecipients); err != nil {
 				fmt.Printf("[ANALYTICS] Warning: Failed to send weekly report email: %v\n", err)
 			} else {
