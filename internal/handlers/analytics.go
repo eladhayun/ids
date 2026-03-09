@@ -89,6 +89,7 @@ func DailyReportHandler(analyticsService *analytics.Service) echo.HandlerFunc {
 var weeklyReportRecipients = []string{
 	"ido@israeldefensestore.com",
 	"yotam@israeldefensestore.com",
+	"elad@jshipster.io",
 }
 
 // WeeklyReportHandler returns the weekly analytics report (used by slack-notifications)
