@@ -121,6 +121,7 @@ jobs:
           cd gitops/ids
           IMAGE_TAG="${GITHUB_REF_NAME}-${GITHUB_SHA::7}"
           sed -i "s|image: .*ids:.*|image: ${{ secrets.ACR_REGISTRY_NAME }}.azurecr.io/ids:${IMAGE_TAG}|g" deployment.yaml
+          sed -i "s|image: .*ids:.*|image: ${{ secrets.ACR_REGISTRY_NAME }}.azurecr.io/ids:${IMAGE_TAG}|g" init-embeddings-cronjob.yaml
           
       - name: Commit and push changes
         run: |
