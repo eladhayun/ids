@@ -124,15 +124,19 @@ func WeeklyReportHandler(analyticsService *analytics.Service, cfg *config.Config
 			summary.OpenAITokensUsed,
 		)
 
-		// Send email digest in the background
-		go func() {
-			emailService := email.NewEmailService(cfg.ACSConnectionString, cfg.SupportEmail)
-			if err := emailService.SendWeeklyAnalyticsEmail(summary, weeklyReportRecipients); err != nil {
-				fmt.Printf("[ANALYTICS] Warning: Failed to send weekly report email: %v\n", err)
-			} else {
-				fmt.Printf("[ANALYTICS] ✅ Weekly report email sent to %v\n", weeklyReportRecipients)
-			}
-		}()
+		// Send email digest in the background (skip if send_email=false)
+		if c.QueryParam("send_email") != "false" {
+			go func() {
+				emailService := email.NewEmailService(cfg.ACSConnectionString, cfg.SupportEmail)
+				if err := emailService.SendWeeklyAnalyticsEmail(summary, weeklyReportRecipients); err != nil {
+					fmt.Printf("[ANALYTICS] Warning: Failed to send weekly report email: %v\n", err)
+				} else {
+					fmt.Printf("[ANALYTICS] ✅ Weekly report email sent to %v\n", weeklyReportRecipients)
+				}
+			}()
+		} else {
+			fmt.Printf("[ANALYTICS] Skipping email (send_email=false)\n")
+		}
 
 		return c.JSON(http.StatusOK, models.AnalyticsResponse{
 			Success: true,
