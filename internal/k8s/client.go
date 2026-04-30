@@ -270,13 +270,46 @@ echo "==========================================="`,
 						},
 					},
 					{
-						Name: "OPENAI_API_KEY",
+						Name: "AZURE_OPENAI_ENDPOINT",
 						ValueFrom: &corev1.EnvVarSource{
 							SecretKeyRef: &corev1.SecretKeySelector{
 								LocalObjectReference: corev1.LocalObjectReference{
 									Name: "ids-secrets",
 								},
-								Key: "OPENAI_API_KEY",
+								Key: "AZURE_OPENAI_ENDPOINT",
+							},
+						},
+					},
+					{
+						Name: "AZURE_OPENAI_KEY",
+						ValueFrom: &corev1.EnvVarSource{
+							SecretKeyRef: &corev1.SecretKeySelector{
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: "ids-secrets",
+								},
+								Key: "AZURE_OPENAI_KEY",
+							},
+						},
+					},
+					{
+						Name: "AZURE_OPENAI_GPT_DEPLOYMENT",
+						ValueFrom: &corev1.EnvVarSource{
+							ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: "ids-config",
+								},
+								Key: "AZURE_OPENAI_GPT_DEPLOYMENT",
+							},
+						},
+					},
+					{
+						Name: "AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
+						ValueFrom: &corev1.EnvVarSource{
+							ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
+								LocalObjectReference: corev1.LocalObjectReference{
+									Name: "ids-config",
+								},
+								Key: "AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
 							},
 						},
 					},

@@ -28,7 +28,6 @@ func TestLoad_CustomValues(t *testing.T) {
 	_ = os.Setenv("DATABASE_URL", "mysql://user:pass@localhost:3306/testdb")
 	_ = os.Setenv("VERSION", "2.0.0")
 	_ = os.Setenv("LOG_LEVEL", "debug")
-	_ = os.Setenv("OPENAI_API_KEY", "test-key-123")
 	_ = os.Setenv("WAIT_FOR_TUNNEL", "false")
 	_ = os.Setenv("OPENAI_TIMEOUT", "120")
 	_ = os.Setenv("EMBEDDING_SCHEDULE_INTERVAL_HOURS", "24")
@@ -39,7 +38,6 @@ func TestLoad_CustomValues(t *testing.T) {
 	assert.Equal(t, "mysql://user:pass@localhost:3306/testdb", cfg.DatabaseURL)
 	assert.Equal(t, "2.0.0", cfg.Version)
 	assert.Equal(t, "debug", cfg.LogLevel)
-	assert.Equal(t, "test-key-123", cfg.OpenAIKey)
 	assert.False(t, cfg.WaitForTunnel)
 	assert.Equal(t, 120, cfg.OpenAITimeout)
 	assert.Equal(t, 24, cfg.EmbeddingScheduleHours)
@@ -48,13 +46,11 @@ func TestLoad_CustomValues(t *testing.T) {
 func TestLoad_PartialCustomValues(t *testing.T) {
 	clearEnv(t)
 	_ = os.Setenv("PORT", "3000")
-	_ = os.Setenv("OPENAI_API_KEY", "sk-test")
 
 	cfg := Load()
 
 	// Custom values
 	assert.Equal(t, "3000", cfg.Port)
-	assert.Equal(t, "sk-test", cfg.OpenAIKey)
 
 	// Default values for unset variables
 	assert.Equal(t, "1.0.0", cfg.Version)
@@ -286,14 +282,6 @@ func TestLoad_EmptyDatabaseURL(t *testing.T) {
 	assert.Empty(t, cfg.DatabaseURL)
 }
 
-func TestLoad_EmptyOpenAIKey(t *testing.T) {
-	clearEnv(t)
-	_ = os.Unsetenv("OPENAI_API_KEY")
-
-	cfg := Load()
-	assert.Empty(t, cfg.OpenAIKey)
-}
-
 func TestLoad_EdgeCaseValues(t *testing.T) {
 	clearEnv(t)
 
@@ -319,11 +307,9 @@ func TestLoad_SpecialCharacters(t *testing.T) {
 
 	// Test special characters in values
 	_ = os.Setenv("DATABASE_URL", "mysql://user:p@$$w0rd!@localhost:3306/db?charset=utf8mb4")
-	_ = os.Setenv("OPENAI_API_KEY", "sk-test_key-123!@#$%")
 
 	cfg := Load()
 	assert.Equal(t, "mysql://user:p@$$w0rd!@localhost:3306/db?charset=utf8mb4", cfg.DatabaseURL)
-	assert.Equal(t, "sk-test_key-123!@#$%", cfg.OpenAIKey)
 }
 
 func TestConfig_Struct(t *testing.T) {
@@ -332,7 +318,6 @@ func TestConfig_Struct(t *testing.T) {
 		DatabaseURL:            "mysql://localhost",
 		Version:                "1.0.0",
 		LogLevel:               "info",
-		OpenAIKey:              "test-key",
 		WaitForTunnel:          true,
 		OpenAITimeout:          60,
 		EmbeddingScheduleHours: 168,
@@ -342,7 +327,6 @@ func TestConfig_Struct(t *testing.T) {
 	assert.Equal(t, "mysql://localhost", cfg.DatabaseURL)
 	assert.Equal(t, "1.0.0", cfg.Version)
 	assert.Equal(t, "info", cfg.LogLevel)
-	assert.Equal(t, "test-key", cfg.OpenAIKey)
 	assert.True(t, cfg.WaitForTunnel)
 	assert.Equal(t, 60, cfg.OpenAITimeout)
 	assert.Equal(t, 168, cfg.EmbeddingScheduleHours)
@@ -355,7 +339,6 @@ func clearEnv(t *testing.T) {
 		"DATABASE_URL",
 		"VERSION",
 		"LOG_LEVEL",
-		"OPENAI_API_KEY",
 		"WAIT_FOR_TUNNEL",
 		"OPENAI_TIMEOUT",
 		"EMBEDDING_SCHEDULE_INTERVAL_HOURS",

@@ -52,11 +52,11 @@ func New(cfg *config.Config, db *sqlx.DB, logger zerolog.Logger) *Server {
 	embeddingCache := cache.New()
 	logger.Info().Msg("Query embedding cache initialized")
 
-	// Initialize embedding service if OpenAI API key is available
+	// Initialize embedding service if Azure OpenAI is configured
 	// Note: db (MariaDB) is only used for reading product data when generating embeddings
 	// writeClient (PostgreSQL) is used for searching embeddings
 	var embeddingService *embeddings.EmbeddingService
-	if cfg.OpenAIKey != "" && writeClient != nil {
+	if cfg.UseAzureOpenAI() && writeClient != nil {
 		var err error
 		embeddingService, err = embeddings.NewEmbeddingService(cfg, db, writeClient, embeddingCache)
 		if err != nil {

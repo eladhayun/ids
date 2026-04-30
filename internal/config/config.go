@@ -17,7 +17,6 @@ type Config struct {
 	EmbeddingsDatabaseURL  string // Local MariaDB - for storing embeddings and email data
 	Version                string
 	LogLevel               string
-	OpenAIKey              string
 	WaitForTunnel          bool   // Whether to wait for SSH tunnel to be ready
 	OpenAITimeout          int    // OpenAI API timeout in seconds
 	EmbeddingScheduleHours int    // Embedding generation schedule interval in hours
@@ -25,7 +24,7 @@ type Config struct {
 	ACSConnectionString    string // Azure Communication Services connection string for sending emails
 	SupportEmail           string // Support email address (default: support@israeldefensestore.com)
 
-	// Azure OpenAI Configuration (primary provider - falls back to OpenAI if not configured)
+	// Azure OpenAI Configuration
 	AzureOpenAIEndpoint            string // Azure OpenAI endpoint (e.g., https://xxx.openai.azure.com/)
 	AzureOpenAIKey                 string // Azure OpenAI API key
 	AzureOpenAIGPTDeployment       string // Deployment name for GPT model (e.g., gpt-4o-mini)
@@ -56,7 +55,6 @@ func Load() *Config {
 		EmbeddingsDatabaseURL:  os.Getenv("EMBEDDINGS_DATABASE_URL"), // Local MariaDB
 		Version:                getEnv("VERSION", "1.0.0"),
 		LogLevel:               getEnv("LOG_LEVEL", "info"),
-		OpenAIKey:              os.Getenv("OPENAI_API_KEY"),
 		WaitForTunnel:          getEnvBool("WAIT_FOR_TUNNEL", true),                       // Default true for production safety
 		OpenAITimeout:          getEnvInt("OPENAI_TIMEOUT", 60),                           // Default 60 seconds
 		EmbeddingScheduleHours: getEnvInt("EMBEDDING_SCHEDULE_INTERVAL_HOURS", 168),       // Default 168 hours (1 week)
@@ -64,7 +62,7 @@ func Load() *Config {
 		ACSConnectionString:    os.Getenv("ACS_CONNECTION_STRING"),                        // Azure Communication Services for emails
 		SupportEmail:           getEnv("SUPPORT_EMAIL", "support@israeldefensestore.com"), // Support email address
 
-		// Azure OpenAI (primary) - falls back to OpenAI if not configured
+		// Azure OpenAI
 		AzureOpenAIEndpoint:            os.Getenv("AZURE_OPENAI_ENDPOINT"),
 		AzureOpenAIKey:                 os.Getenv("AZURE_OPENAI_KEY"),
 		AzureOpenAIGPTDeployment:       getEnv("AZURE_OPENAI_GPT_DEPLOYMENT", "gpt-4o-mini"),
@@ -116,11 +114,6 @@ func getEnvBool(key string, defaultValue bool) bool {
 // UseAzureOpenAI returns true if Azure OpenAI is properly configured
 func (c *Config) UseAzureOpenAI() bool {
 	return c.AzureOpenAIEndpoint != "" && c.AzureOpenAIKey != ""
-}
-
-// HasOpenAIFallback returns true if regular OpenAI API key is configured as fallback
-func (c *Config) HasOpenAIFallback() bool {
-	return c.OpenAIKey != ""
 }
 
 // SetupLogger configures zerolog with JSON output and single-line format

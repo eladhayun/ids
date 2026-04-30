@@ -13,6 +13,7 @@ import (
 	"ids/internal/database"
 	"ids/internal/email"
 	"ids/internal/models"
+	idsopenai "ids/internal/openai"
 
 	"github.com/labstack/echo/v4"
 	"github.com/sashabaranov/go-openai"
@@ -68,17 +69,18 @@ func SupportRequestHandler(cfg *config.Config, analyticsService *analytics.Servi
 			})
 		}
 
-		// Check if OpenAI API key is configured
-		if cfg.OpenAIKey == "" {
-			fmt.Printf("[SUPPORT] ERROR: OpenAI API key not configured\n")
+		// Create unified OpenAI client (Azure primary, OpenAI fallback)
+		openaiClient, err := idsopenai.NewClient(cfg)
+		if err != nil {
+			fmt.Printf("[SUPPORT] ERROR: Failed to create OpenAI client: %v\n", err)
 			return c.JSON(http.StatusInternalServerError, models.SupportResponse{
 				Success: false,
-				Error:   "OpenAI API key not configured",
+				Error:   "OpenAI provider not configured",
 			})
 		}
 
 		// Summarize conversation using OpenAI
-		summary, err := summarizeConversation(cfg.OpenAIKey, req.Conversation, analyticsService)
+		summary, err := summarizeConversation(openaiClient, req.Conversation, analyticsService)
 		if err != nil {
 			fmt.Printf("[SUPPORT] ERROR: Failed to summarize conversation: %v\n", err)
 			// Continue with basic summary if AI summarization fails
@@ -132,8 +134,7 @@ func SupportRequestHandler(cfg *config.Config, analyticsService *analytics.Servi
 }
 
 // summarizeConversation uses OpenAI to generate a summary of the conversation
-func summarizeConversation(openAIKey string, conversation []models.ConversationMessage, analyticsService *analytics.Service) (string, error) {
-	client := openai.NewClient(openAIKey)
+func summarizeConversation(client *idsopenai.Client, conversation []models.ConversationMessage, analyticsService *analytics.Service) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -166,19 +167,13 @@ func summarizeConversation(openAIKey string, conversation []models.ConversationM
 		},
 	}
 
-	resp, err := client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model:       openai.GPT4oMini,
-		Messages:    messages,
-		MaxTokens:   500,
-		Temperature: 0.7,
-	})
-
+	resp, err := client.CreateChatCompletion(ctx, messages, 500, 0.7)
 	if err != nil {
 		return "", err
 	}
 
 	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("no response from OpenAI")
+		return "", fmt.Errorf("no response from %s", client.GetProviderName())
 	}
 
 	// Track support summarization (billable)
@@ -188,7 +183,7 @@ func summarizeConversation(openAIKey string, conversation []models.ConversationM
 			if resp.Usage.TotalTokens > 0 {
 				tokens = resp.Usage.TotalTokens
 			}
-			if err := analyticsService.TrackSupportSummarization(tokens, string(openai.GPT4oMini)); err != nil {
+			if err := analyticsService.TrackSupportSummarization(tokens, client.GetGPTModel()); err != nil {
 				fmt.Printf("[SUPPORT] Warning: Failed to track summarization: %v\n", err)
 			}
 		}()

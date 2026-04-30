@@ -58,11 +58,11 @@ func ChatHandler(db *sqlx.DB, cfg *config.Config, cache *cache.Cache, embeddingS
 			})
 		}
 
-		// Check if OpenAI API key is configured
-		if cfg.OpenAIKey == "" {
-			fmt.Printf("[CHAT] ERROR: OpenAI API key not configured\n")
+		// Check if Azure OpenAI is configured
+		if !cfg.UseAzureOpenAI() {
+			fmt.Printf("[CHAT] ERROR: Azure OpenAI not configured\n")
 			return c.JSON(http.StatusInternalServerError, models.ChatResponse{
-				Error: "OpenAI API key not configured",
+				Error: "Azure OpenAI not configured",
 			})
 		}
 

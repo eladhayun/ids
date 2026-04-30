@@ -10,9 +10,8 @@ import (
 	"ids/internal/config"
 	"ids/internal/database"
 	"ids/internal/models"
+	idsopenai "ids/internal/openai"
 	"ids/internal/vectordb"
-
-	"github.com/sashabaranov/go-openai"
 )
 
 // min returns the minimum of two integers
@@ -25,7 +24,7 @@ func min(a, b int) int {
 
 // EmailEmbeddingService handles vector embeddings for emails
 type EmailEmbeddingService struct {
-	client       *openai.Client
+	client       *idsopenai.Client // Unified client with Azure/OpenAI fallback
 	db           *database.WriteClient
 	cache        *cache.Cache
 	qdrantClient *vectordb.QdrantClient // Qdrant client for dual-write (optional)
@@ -34,18 +33,16 @@ type EmailEmbeddingService struct {
 // NewEmailEmbeddingService creates a new email embedding service
 // embeddingCache: Optional cache for query embeddings (can be nil)
 func NewEmailEmbeddingService(cfg *config.Config, writeClient *database.WriteClient, embeddingCache ...*cache.Cache) (*EmailEmbeddingService, error) {
-	client := openai.NewClient(cfg.OpenAIKey)
+	client, err := idsopenai.NewClient(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OpenAI client: %v", err)
+	}
 
-	// Test the connection
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err := client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
-		Input: []string{"test"},
-		Model: openai.SmallEmbedding3,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to OpenAI API: %v", err)
+	if err := client.TestConnection(ctx); err != nil {
+		return nil, err
 	}
 
 	service := &EmailEmbeddingService{
@@ -376,19 +373,16 @@ func (ees *EmailEmbeddingService) processEmailBatch(emails []models.Email) error
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	resp, err := ees.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
-		Input: texts,
-		Model: openai.SmallEmbedding3,
-	})
+	embeddings, err := ees.client.CreateEmbeddings(ctx, texts)
 	if err != nil {
 		return fmt.Errorf("failed to generate embeddings: %w", err)
 	}
 
 	// Store embeddings
-	for i, embeddingData := range resp.Data {
+	for i, vec := range embeddings {
 		email := emails[i]
-		embedding := make([]float64, len(embeddingData.Embedding))
-		for j, v := range embeddingData.Embedding {
+		embedding := make([]float64, len(vec))
+		for j, v := range vec {
 			embedding[j] = float64(v)
 		}
 
@@ -530,16 +524,16 @@ func (ees *EmailEmbeddingService) generateThreadEmbedding(threadID string) error
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	resp, err := ees.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
-		Input: []string{text},
-		Model: openai.SmallEmbedding3,
-	})
+	embeddings, err := ees.client.CreateEmbeddings(ctx, []string{text})
 	if err != nil {
 		return err
 	}
+	if len(embeddings) == 0 {
+		return fmt.Errorf("no embedding returned for thread %s", threadID)
+	}
 
-	embedding := make([]float64, len(resp.Data[0].Embedding))
-	for j, v := range resp.Data[0].Embedding {
+	embedding := make([]float64, len(embeddings[0]))
+	for j, v := range embeddings[0] {
 		embedding[j] = float64(v)
 	}
 
@@ -694,15 +688,15 @@ func (ees *EmailEmbeddingService) SearchSimilarEmails(query string, limit int, s
 	// Generate embedding if not in cache
 	if queryEmbedding == nil {
 		fmt.Printf("[EMAIL_EMBEDDINGS] Generating query embedding...\n")
-		resp, err := ees.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
-			Input: []string{query},
-			Model: openai.SmallEmbedding3,
-		})
+		embeddings, err := ees.client.CreateEmbeddings(ctx, []string{query})
 		if err != nil {
 			fmt.Printf("[EMAIL_EMBEDDINGS] ❌ ERROR: Failed to generate query embedding: %v\n", err)
 			return nil, err
 		}
-		queryEmbedding = resp.Data[0].Embedding
+		if len(embeddings) == 0 {
+			return nil, fmt.Errorf("no embedding returned for query")
+		}
+		queryEmbedding = embeddings[0]
 
 		// Store in cache for future requests
 		if ees.cache != nil {
