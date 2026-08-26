@@ -1,0 +1,152 @@
+# AGENTS.md — IDS API
+
+Repository guidance adapted from the project's Cursor rules for Codex and
+other coding agents.
+
+## Swagger Documentation Requirements
+
+When creating or modifying API endpoints, ALWAYS update Swagger documentation:
+
+### For New Endpoints:
+1. Add Swagger annotations to handler functions:
+   ```go
+   // @Summary Brief description
+   // @Description Detailed description
+   // @Tags category_name
+   // @Accept json
+   // @Produce json
+   // @Param param_name query/body/path type required "Description"
+   // @Success 200 {object} models.ResponseType
+   // @Failure 400 {object} models.ErrorResponse
+   // @Router /endpoint-path [method]
+   ```
+
+2. Update response models with annotations:
+   ```go
+   // @Description Model description
+   type Response struct {
+       Field string `json:"field" example:"value"` // Description
+   }
+   ```
+
+3. Regenerate documentation:
+   ```bash
+   make swagger
+   ```
+
+4. Test Swagger UI at: http://localhost:8080/swagger/
+
+### For Existing Endpoint Changes:
+- Update annotations if parameters, responses, or behavior changes
+- Regenerate docs after modifications
+- Verify changes in Swagger UI
+
+## Code Style Guidelines
+
+- Use descriptive function and variable names
+- Add comments for complex logic
+- Follow Go naming conventions
+- Use proper error handling
+- Include input validation
+
+## Project Structure
+
+- Handlers go in `internal/handlers/`
+- Models go in `internal/models/`
+- Server setup in `internal/server/`
+- Main entry point in `cmd/server/main.go`
+- Swagger docs in `docs/`
+
+## Testing
+
+- Test new endpoints using Swagger UI
+- Verify error responses work correctly
+- Check that all parameters are documented
+- Ensure response examples are accurate
+
+Remember: Swagger documentation is critical for API usability and must be kept current!
+
+## Memory Items
+
+### Project Context
+- This is a Go-based IDS (Intrusion Detection System) API project
+- Uses Swagger for API documentation
+- Follows clean architecture patterns with handlers, models, and server separation
+- Has a companion GitOps repository for Kubernetes deployments
+- **Database: MariaDB** (not MySQL) - affects SQL syntax and transaction handling
+
+### Development Guidelines
+- Always use absolute paths when possible for tool calls
+- Prefer editing existing files over creating new ones
+- Follow Go naming conventions and best practices
+- Include proper error handling and input validation
+- Add comments for complex logic
+
+### Kubernetes Context
+- Always use the "jshipster" context for Kubernetes operations
+- Use MCP server or kubectl commands with jshipster context
+- GitOps repository contains Kubernetes manifests for deployment
+
+### Database Interaction
+- **CRITICAL: This project uses MariaDB, NOT MySQL** - important for database-specific syntax and behavior
+- Always use MariaDB CLI tool when interacting with the database
+- Use command: `mariadb -h localhost -P 3306 -u root -p'my-secret-pw' -D isrealde_wp654 --ssl=false`
+- Database contains WordPress/WooCommerce product data with post_name (URL slug), post_title, and sku fields
+- MariaDB has some differences from MySQL in transaction characteristics and SQL syntax
+
+### Documentation Requirements
+- Swagger documentation must be kept current
+- All API endpoints need proper annotations
+- Test endpoints using Swagger UI at http://localhost:8080/swagger/
+- Regenerate docs after any changes using `make swagger`
+
+### File Structure
+- Handlers: `internal/handlers/`
+- Models: `internal/models/`
+- Server: `internal/server/`
+- Main: `cmd/server/main.go`
+- Swagger docs: `docs/`
+- Static files: `static/`
+
+### Code Quality
+- Use descriptive function and variable names
+- Follow proper Go conventions
+- Include comprehensive error handling
+- Validate all inputs
+- Add meaningful comments for complex logic
+
+## Pre-Completion Checklist
+
+**ALWAYS complete these steps before considering any task done:**
+
+1. **Format Code**
+   ```bash
+   go fmt ./...
+   ```
+
+2. **Lint Code**
+   ```bash
+   go vet ./...
+   # or use golangci-lint if available
+   ```
+
+3. **Build Code**
+   ```bash
+   go build ./...
+   # or specific build command
+   make build
+   ```
+
+4. **Run Tests**
+   ```bash
+   go test ./...
+   # or specific test command
+   make test
+   ```
+
+5. **Verify Swagger Documentation** (if API changes)
+   ```bash
+   make swagger
+   ```
+
+**No task is complete until all checks pass successfully!**
