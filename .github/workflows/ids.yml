@@ -11,6 +11,11 @@ on:
     paths-ignore:
       - 'hostapp/**'
       - 'docs/**'
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+      - '.agents/**'
+      - '.claude/**'
+      - '.cursorrules'
 
 jobs:
   test:
