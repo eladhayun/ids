@@ -145,9 +145,9 @@ func isQuotaError(err error) bool {
 func initializeEmbeddingService(cfg *config.Config, readDB *sqlx.DB, writeClient *database.WriteClient, runOnce bool) *embeddings.WriteEmbeddingService {
 	fmt.Println("Initializing embedding service...")
 
-	// Initialize Qdrant client if URL is configured
+	// Initialize Qdrant only when the optional integration is explicitly enabled.
 	var qdrantClient *vectordb.QdrantClient
-	if cfg.QdrantURL != "" {
+	if cfg.QdrantEnabled && cfg.QdrantURL != "" {
 		fmt.Printf("Initializing Qdrant client at %s...\n", cfg.QdrantURL)
 		var err error
 		qdrantClient, err = vectordb.NewQdrantClient(cfg.QdrantURL)
@@ -269,9 +269,9 @@ func handleScheduledGeneration(cfg *config.Config, readDB *sqlx.DB, writeClient 
 func reinitializeEmbeddingService(cfg *config.Config, readDB *sqlx.DB, writeClient *database.WriteClient) *embeddings.WriteEmbeddingService {
 	fmt.Println("Re-initializing embedding service...")
 
-	// Initialize Qdrant client if URL is configured
+	// Initialize Qdrant only when the optional integration is explicitly enabled.
 	var qdrantClient *vectordb.QdrantClient
-	if cfg.QdrantURL != "" {
+	if cfg.QdrantEnabled && cfg.QdrantURL != "" {
 		fmt.Printf("Re-initializing Qdrant client at %s...\n", cfg.QdrantURL)
 		var err error
 		qdrantClient, err = vectordb.NewQdrantClient(cfg.QdrantURL)

@@ -19,6 +19,8 @@ func TestLoad_DefaultValues(t *testing.T) {
 	assert.True(t, cfg.WaitForTunnel)
 	assert.Equal(t, 60, cfg.OpenAITimeout)
 	assert.Equal(t, 168, cfg.EmbeddingScheduleHours)
+	assert.Empty(t, cfg.QdrantURL)
+	assert.False(t, cfg.QdrantEnabled)
 }
 
 func TestLoad_CustomValues(t *testing.T) {
@@ -31,6 +33,8 @@ func TestLoad_CustomValues(t *testing.T) {
 	_ = os.Setenv("WAIT_FOR_TUNNEL", "false")
 	_ = os.Setenv("OPENAI_TIMEOUT", "120")
 	_ = os.Setenv("EMBEDDING_SCHEDULE_INTERVAL_HOURS", "24")
+	_ = os.Setenv("QDRANT_URL", "qdrant.example:6334")
+	_ = os.Setenv("QDRANT_ENABLED", "true")
 
 	cfg := Load()
 
@@ -41,6 +45,8 @@ func TestLoad_CustomValues(t *testing.T) {
 	assert.False(t, cfg.WaitForTunnel)
 	assert.Equal(t, 120, cfg.OpenAITimeout)
 	assert.Equal(t, 24, cfg.EmbeddingScheduleHours)
+	assert.Equal(t, "qdrant.example:6334", cfg.QdrantURL)
+	assert.True(t, cfg.QdrantEnabled)
 }
 
 func TestLoad_PartialCustomValues(t *testing.T) {
@@ -342,6 +348,8 @@ func clearEnv(t *testing.T) {
 		"WAIT_FOR_TUNNEL",
 		"OPENAI_TIMEOUT",
 		"EMBEDDING_SCHEDULE_INTERVAL_HOURS",
+		"QDRANT_URL",
+		"QDRANT_ENABLED",
 	}
 
 	for _, v := range vars {
