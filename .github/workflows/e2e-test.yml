@@ -98,3 +98,27 @@ jobs:
           echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
           echo "**Time:** $(date -u)" >> $GITHUB_STEP_SUMMARY
 
+  notify-slack:
+    name: Notify Slack
+    runs-on: ubuntu-latest
+    needs: [e2e-tests, notify-on-failure]
+    if: ${{ always() }}
+    steps:
+      - name: Post workflow result
+        continue-on-error: true
+        env:
+          NEEDS_JSON: ${{ toJson(needs) }}
+          SLACK_CHANNEL: C09P9CPGAN9
+        run: |
+          if jq -e 'any(.[]; .result == "failure" or .result == "cancelled")' <<<"$NEEDS_JSON" >/dev/null; then
+            STATUS="failed"
+            ICON=":x:"
+          else
+            STATUS="succeeded"
+            ICON=":white_check_mark:"
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          MSG="$ICON *${GITHUB_WORKFLOW}* ${STATUS} for \`${GITHUB_REPOSITORY}\` on \`${GITHUB_REF_NAME}\` (${GITHUB_SHA::7}), triggered by ${GITHUB_ACTOR}: ${RUN_URL}"
+          curl -fsSL -X POST https://slack-notifications.jshipster.io/notify \
+            -H "Content-Type: application/json" \
+            -d "$(jq -nc --arg m "$MSG" --arg c "$SLACK_CHANNEL" '{message:$m, channel:$c}')"
