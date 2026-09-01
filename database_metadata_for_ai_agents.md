@@ -1,5 +1,7 @@
 # Database Metadata for AI Agents - Israel Defense Store
 
+> **Scope and current architecture (2026-09-01):** This document describes the read-only MariaDB/WooCommerce product source. IDS application data and all product, email, and thread vectors are stored and searched in PostgreSQL with pgvector. Qdrant is no longer deployed.
+
 ## Overview
 This document provides comprehensive metadata about the `isrealde_wp654` MariaDB database to enable AI agents to provide accurate product recommendations and understand the tactical gear e-commerce system.
 

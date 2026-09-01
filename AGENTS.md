@@ -73,7 +73,7 @@ Remember: Swagger documentation is critical for API usability and must be kept c
 - Uses Swagger for API documentation
 - Follows clean architecture patterns with handlers, models, and server separation
 - Has a companion GitOps repository for Kubernetes deployments
-- **Database: MariaDB** (not MySQL) - affects SQL syntax and transaction handling
+- **Data stores:** MariaDB is the read-only WooCommerce product source; PostgreSQL with pgvector is the authoritative IDS application and vector store
 
 ### Development Guidelines
 - Always use absolute paths when possible for tool calls
@@ -88,11 +88,15 @@ Remember: Swagger documentation is critical for API usability and must be kept c
 - GitOps repository contains Kubernetes manifests for deployment
 
 ### Database Interaction
-- **CRITICAL: This project uses MariaDB, NOT MySQL** - important for database-specific syntax and behavior
-- Always use MariaDB CLI tool when interacting with the database
+- **CRITICAL: Product-source queries use MariaDB, NOT MySQL** - important for database-specific syntax and behavior
+- Treat the remote MariaDB/WooCommerce database as read-only. Always use the MariaDB CLI for source-data inspection.
 - Use command: `mariadb -h localhost -P 3306 -u root -p'my-secret-pw' -D isrealde_wp654 --ssl=false`
 - Database contains WordPress/WooCommerce product data with post_name (URL slug), post_title, and sku fields
 - MariaDB has some differences from MySQL in transaction characteristics and SQL syntax
+- `EMBEDDINGS_DATABASE_URL` points to PostgreSQL. PostgreSQL and pgvector are the only production persistence and search path for product, email, and thread embeddings.
+- Qdrant was removed from the production cluster on 2026-09-01. Keep `QDRANT_ENABLED=false` and do not add `QDRANT_URL` or Qdrant manifests unless a separately reviewed architecture change explicitly restores it.
+- The production `ids-init-embeddings` Kubernetes CronJob runs `/home/appuser/init-embeddings-write --once` daily. It reads products from MariaDB and incrementally upserts vectors and metadata into PostgreSQL.
+- Before changing embedding storage or scheduling, verify the IDS GitOps manifests and the `ids_embeddings` PostgreSQL backup path as part of the change.
 
 ### Documentation Requirements
 - Swagger documentation must be kept current

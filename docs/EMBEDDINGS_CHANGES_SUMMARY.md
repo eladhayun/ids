@@ -1,5 +1,7 @@
 # Embeddings Generation: Run Once vs Scheduled Mode
 
+> **Current production status (2026-09-01):** The production `ids-init-embeddings` Kubernetes CronJob runs `/home/appuser/init-embeddings-write --once` daily at `00:00 UTC`. PostgreSQL/pgvector is the sole vector store, and Qdrant has been removed. The continuous mode documented below remains a binary capability but is not the current production deployment model.
+
 ## Summary of Changes
 
 Added a `--once` flag to the embeddings generation tool to support both local development and production use cases.
@@ -23,8 +25,8 @@ make run-embeddings
 
 ---
 
-### Production (Scheduled Mode)
-For Kubernetes/Docker deployments that should run continuously:
+### Standalone Continuous Mode
+For a standalone process that deliberately owns its own schedule:
 
 ```bash
 ./bin/init-embeddings-write
@@ -59,26 +61,20 @@ For Kubernetes/Docker deployments that should run continuously:
 - This makes local dev convenient without breaking production
 
 ### Backwards Compatibility
-✅ **No breaking changes!**
-- Default behavior is unchanged (scheduled mode)
-- Existing production deployments continue working
-- Production command stays the same: `./bin/init-embeddings-write`
+
+The binary default remains scheduled mode, so existing standalone users are compatible. Kubernetes production intentionally overrides that default with `--once` because the CronJob owns the schedule.
 
 ---
 
 ## 🚀 Production Safety
 
-### ✅ Correct Production Usage
+### Current Kubernetes Production Usage
 ```yaml
-# Kubernetes deployment - NO FLAGS
-command: ["/app/bin/init-embeddings-write"]
+# Kubernetes CronJob: run once, then let Kubernetes schedule the next Job
+command: ["/home/appuser/init-embeddings-write", "--once"]
 ```
 
-### ❌ Wrong for Production
-```yaml
-# Would exit after first run!
-command: ["/app/bin/init-embeddings-write", "--once"]
-```
+The no-flag command is appropriate only for a long-running standalone Deployment/container that is meant to use the binary's internal scheduler.
 
 ---
 
@@ -100,13 +96,17 @@ command: ["/app/bin/init-embeddings-write", "--once"]
 - Faster local testing workflow
 
 ### For Production:
-- Unchanged behavior (backwards compatible)
-- Automatic continuous regeneration
-- Handles failures gracefully
+- One execution per Kubernetes CronJob-created Job
+- Daily scheduling and overlap prevention managed by Kubernetes
+- PostgreSQL/pgvector reads and writes only
+- No Qdrant service, volume, or runtime dependency
 
 ---
 
-**Date:** November 19, 2025  
-**Impact:** Local development workflow improvement  
-**Breaking Changes:** None
+**Date:** November 19, 2025
 
+**Current production note added:** September 1, 2026
+
+**Impact:** Local development workflow improvement and current Kubernetes operating guidance
+
+**Breaking Changes:** None

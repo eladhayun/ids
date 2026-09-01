@@ -1,5 +1,7 @@
 # Email Import Example
 
+> **Current production note (2026-09-01):** The example below predates the PostgreSQL-only vector-store migration. Current IDS email/thread records and vectors live in PostgreSQL/pgvector; Qdrant has been removed, and MariaDB is only the read-only product source. Treat MariaDB verification commands below as historical and use [Embeddings Quick Start](./EMBEDDINGS_QUICK_START.md) for the current storage model.
+
 This guide shows a complete workflow for importing email conversations and using them to enhance chat responses.
 
 ## Quick Start Example
@@ -359,4 +361,3 @@ If 0, regenerate embeddings:
    - Automatic categorization
    - Response templates based on past conversations
    - Analytics dashboard for most helpful past conversations
-

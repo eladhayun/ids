@@ -1,5 +1,7 @@
 # Makefile Email Import Commands - Quick Reference
 
+> **Current production note (2026-09-01):** Email/thread data and vectors now use PostgreSQL/pgvector exclusively. Qdrant is removed, and MariaDB is only the read-only WooCommerce product source. The older MariaDB verification commands below are historical; use [Embeddings Quick Start](./EMBEDDINGS_QUICK_START.md) for current database variables and checks.
+
 ## Overview
 
 The Makefile now includes convenient targets to import email conversations with a single command. These targets automatically build the import tool if needed and run the complete import process.
@@ -277,4 +279,3 @@ make import-emails EMAIL_PATH=/path 2>&1 | tee import.log
 # Check help
 make help | grep -A 10 "Email commands"
 ```
-

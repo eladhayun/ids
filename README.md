@@ -1,6 +1,8 @@
 # IDS API Documentation
 
-This document describes the IDS API server with product management and AI-powered chat functionality using vector embeddings.
+This document describes the IDS API server with product management and AI-powered chat functionality using PostgreSQL/pgvector embeddings.
+
+> **Production vector-store status (2026-09-01):** PostgreSQL with pgvector is the sole vector store for IDS. Qdrant has been removed from the cluster. MariaDB remains the read-only WooCommerce product source.
 
 ## Overview
 
@@ -35,8 +37,9 @@ The API includes comprehensive Swagger/OpenAPI documentation that can be accesse
 ### Prerequisites
 
 - Go 1.25.0 or higher
-- MariaDB/MySQL database
-- OpenAI API key (for chat functionality)
+- MariaDB product-source database
+- PostgreSQL with the pgvector extension
+- Azure OpenAI access (for chat and embedding generation)
 
 ### Setup
 
@@ -49,7 +52,9 @@ The API includes comprehensive Swagger/OpenAPI documentation that can be accesse
 3. Update the `.env` file with your configuration:
    ```env
    DATABASE_URL=mysql://username:password@localhost:3306/database_name
-   OPENAI_API_KEY=your_openai_api_key_here
+   EMBEDDINGS_DATABASE_URL=postgres://username:password@localhost:5432/ids_embeddings?sslmode=disable
+   AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+   AZURE_OPENAI_KEY=your_azure_openai_key_here
    PORT=8080
    ```
 
@@ -71,7 +76,7 @@ The API includes comprehensive Swagger/OpenAPI documentation that can be accesse
    make build-embeddings
    
    # Run it to generate embeddings for all products
-   ./bin/init-embeddings-write
+   ./bin/init-embeddings-write --once
    ```
 
 ### Generating Documentation
@@ -115,15 +120,16 @@ The Docker build process:
 
 ## Vector Search & Embeddings
 
-The IDS API uses OpenAI's text embeddings to provide intelligent, semantic product search. This enables the AI assistant to understand user queries and recommend the most relevant products based on meaning rather than just keywords.
+The IDS API uses Azure OpenAI text embeddings and PostgreSQL/pgvector to provide intelligent semantic product and email search. This enables the AI assistant to understand user queries and retrieve relevant context based on meaning rather than only keywords.
 
 ### How It Works
 
-1. **Embedding Generation**: Product information (title, description, tags, prices) is converted into vector embeddings using OpenAI's `text-embedding-3-small` model
-2. **Storage**: Embeddings are stored in the `product_embeddings` table in MariaDB
-3. **Semantic Search**: User queries are converted to embeddings and compared using cosine similarity
-4. **Smart Ranking**: Products are ranked by similarity score, with in-stock items prioritized
-5. **Context-Aware Responses**: The top 15 most relevant products are provided to the AI for generating responses
+1. **Source Read**: Product information is read from the remote, read-only MariaDB/WooCommerce database
+2. **Embedding Generation**: Product information (title, description, tags, and prices) is converted into vector embeddings using the Azure OpenAI `text-embedding-3-small` deployment
+3. **Storage**: Product, email, and thread embeddings are stored in the `ids_embeddings` PostgreSQL database using pgvector
+4. **Semantic Search**: User queries are converted to embeddings and compared in PostgreSQL using pgvector cosine distance and HNSW indexes
+5. **Smart Ranking**: Products are ranked by similarity score, with in-stock items prioritized
+6. **Context-Aware Responses**: The top 15 most relevant products are provided to the AI for generating responses
 
 ### Embeddings Command
 
@@ -134,17 +140,18 @@ The `init-embeddings-write` command generates and stores embeddings for all prod
 make build-embeddings
 
 # Run embedding generation
-./bin/init-embeddings-write
+./bin/init-embeddings-write --once
 ```
 
 This command:
-- Creates the `product_embeddings` table if it doesn't exist
-- Fetches all published and private products from the database
+- Enables pgvector and creates the PostgreSQL embedding tables and HNSW indexes if needed
+- Fetches all published and private products from the read-only MariaDB source
 - Generates embeddings in batches of 100 products
-- Stores embeddings in JSON format
-- Can be run on-demand or scheduled (includes built-in daily execution mode)
+- Uses product checksums to incrementally update changed products
+- Stores 1536-dimensional vectors and denormalized product metadata in PostgreSQL
+- Can run once or use its built-in scheduler; production invokes `--once` from the daily `ids-init-embeddings` Kubernetes CronJob
 
-**Note**: The command requires write access to the database and will create the necessary tables automatically.
+**Note**: The command requires read access to MariaDB and write access to PostgreSQL. Production has no Qdrant dependency.
 
 ## Email Import & Context Enhancement
 
@@ -322,8 +329,14 @@ PORT=8080
 VERSION=1.0.0
 LOG_LEVEL=info
 
-# OpenAI Configuration
-OPENAI_API_KEY=your_openai_api_key_here
+# PostgreSQL application and vector store
+EMBEDDINGS_DATABASE_URL=postgres://username:password@localhost:5432/ids_embeddings?sslmode=disable
+
+# Azure OpenAI Configuration
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_KEY=your_azure_openai_key_here
+AZURE_OPENAI_GPT_DEPLOYMENT=gpt-4o-mini
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-3-small
 OPENAI_TIMEOUT=60  # API timeout in seconds (default: 60)
 
 # Tunnel Configuration (for SSH tunnel scenarios)
@@ -333,16 +346,17 @@ WAIT_FOR_TUNNEL=false  # Wait for SSH tunnel before connecting to database
 ### Required Dependencies
 
 The chatbot functionality requires:
-- OpenAI API key (get one from https://platform.openai.com/)
-- Database connection (for product data and embeddings)
-- Product embeddings table (created by `init-embeddings-write` command)
+- Azure OpenAI endpoint and key
+- Read access to the MariaDB product source
+- Write/read access to the PostgreSQL `ids_embeddings` database with pgvector
+- Product embeddings table (created by `init-embeddings-write`)
 
 ## How It Works
 
 ### Vector Search Mode (When Embeddings Available)
 
 1. **Query Extraction**: The last user message is extracted from the conversation
-2. **Vector Search**: The query is converted to an embedding and compared against all product embeddings using cosine similarity
+2. **Vector Search**: The query is converted to an embedding and searched with PostgreSQL pgvector cosine distance
 3. **Filtering**: Products are filtered to prioritize in-stock items
 4. **Top Products**: The top 20 most similar products are retrieved
 5. **Context Building**: The top 15 products are formatted with names, prices, stock status, and similarity scores
@@ -396,7 +410,7 @@ Example response with vector search:
 The API handles various error conditions:
 
 - **503 Service Unavailable**: Database connection not available
-- **500 Internal Server Error**: OpenAI API key not configured or API error
+- **500 Internal Server Error**: Azure OpenAI configuration or API error
 - **400 Bad Request**: Invalid request body, empty conversation, or no user message found
 
 ## Product Context
@@ -414,7 +428,7 @@ The assistant uses the top 15 most relevant products (out of 20 retrieved) to pr
 
 ### Vector Search Mode
 - **Embedding Generation**: Initial setup requires generating embeddings for all products
-- **Search Performance**: Vector similarity calculation is performed in-memory for all products
+- **Search Performance**: Similarity is evaluated by PostgreSQL pgvector with HNSW cosine indexes
 - **Result Ranking**: Products are sorted by cosine similarity and filtered by stock status
 - **Context Limits**: Top 15 products are included in AI context to avoid token limits
 
@@ -438,17 +452,31 @@ The assistant uses the top 15 most relevant products (out of 20 retrieved) to pr
 The embeddings table is automatically created by the `init-embeddings-write` command:
 
 ```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+
 CREATE TABLE product_embeddings (
-    product_id INT PRIMARY KEY,
-    embedding JSON NOT NULL,
+    product_id INTEGER PRIMARY KEY,
+    embedding vector(1536) NOT NULL,
+    post_title TEXT,
+    post_name TEXT,
+    description TEXT,
+    short_description TEXT,
+    sku TEXT,
+    min_price TEXT,
+    max_price TEXT,
+    stock_status TEXT,
+    stock_quantity NUMERIC,
+    tags TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_product_id (product_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_product_embeddings_hnsw
+    ON product_embeddings USING hnsw (embedding vector_cosine_ops);
 ```
 
-- **product_id**: Foreign key to wpjr_posts.ID
-- **embedding**: JSON array of 1536 float values (OpenAI text-embedding-3-small dimensions)
+- **product_id**: The corresponding MariaDB `wpjr_posts.ID`; no cross-database foreign key is created
+- **embedding**: pgvector `vector(1536)` value generated by the Azure OpenAI embedding deployment
 - **created_at**: Timestamp of when the embedding was first created
 - **updated_at**: Timestamp of the last update
 
@@ -510,13 +538,13 @@ The application includes language detection capabilities for the following langu
 
 ### Current Limitations
 1. **Language Detection**: Language detection is implemented but not currently active in chat handlers
-2. **In-Memory Vector Search**: All embeddings are loaded into memory for similarity calculation
+2. **Single Vector Store**: PostgreSQL/pgvector is the only production vector store; vector-store failover is not configured
 3. **No Pagination**: Vector search returns top N results without pagination support
 4. **Basic Retry Logic**: Only basic chat mode has retry logic with exponential backoff
 
 ### Potential Enhancements
-1. **Vector Database**: Use a dedicated vector database (e.g., Pinecone, Weaviate) for scalable similarity search
-2. **Incremental Updates**: Support updating individual product embeddings without regenerating all
+1. **pgvector Scaling**: Tune HNSW, autovacuum, and PostgreSQL resources as the vector corpus grows
+2. **Incremental Updates**: Extend the existing checksum-based product updates to finer-grained event-driven refreshes
 3. **Multi-Language Chat**: Enable automatic language detection and response in the user's language
 4. **Advanced Filtering**: Add filters for price range, categories, and other product attributes
 5. **Hybrid Search**: Combine vector similarity with traditional keyword search
@@ -529,9 +557,9 @@ The application includes language detection capabilities for the following langu
 **Problem**: The chat endpoint provides general tactical gear information without specific product recommendations.
 
 **Solution**: 
-1. Ensure the `product_embeddings` table exists in your database
-2. Run the embeddings initialization command: `./bin/init-embeddings-write`
-3. Verify embeddings were generated successfully in the database
+1. Ensure PostgreSQL has the `vector` extension and the `product_embeddings` table
+2. Run the embeddings initialization command: `./bin/init-embeddings-write --once`
+3. Verify embeddings were generated successfully in the `ids_embeddings` PostgreSQL database
 4. Restart the server to initialize the embedding service
 
 ### Database Connection Failed
@@ -544,13 +572,13 @@ The application includes language detection capabilities for the following langu
 3. Check database credentials and network connectivity
 4. If using SSH tunnel, ensure `WAIT_FOR_TUNNEL=true` is set
 
-### OpenAI API Errors
+### Azure OpenAI API Errors
 
 **Problem**: Chat requests fail with OpenAI API errors.
 
 **Solution**:
-1. Verify your `OPENAI_API_KEY` is valid and active
-2. Check your OpenAI account has sufficient credits/quota
+1. Verify `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_KEY` are valid
+2. Check the Azure OpenAI resource has sufficient quota
 3. Increase `OPENAI_TIMEOUT` if requests are timing out
 4. Review OpenAI API status page for service disruptions
 
@@ -559,8 +587,8 @@ The application includes language detection capabilities for the following langu
 **Problem**: `init-embeddings-write` command fails or times out.
 
 **Solution**:
-1. Ensure you have write access to the database
-2. Verify the database connection string includes write permissions
+1. Ensure MariaDB is reachable for read-only product access
+2. Verify `EMBEDDINGS_DATABASE_URL` grants write access to PostgreSQL
 3. Check that you have sufficient OpenAI API quota for batch processing
 4. Review the console output for specific error messages
 5. The command processes products in batches of 100 - partial failures may require manual cleanup
@@ -577,12 +605,12 @@ The application includes language detection capabilities for the following langu
 
 ## Security Notes
 
-- Keep your OpenAI API key secure and never commit it to version control
+- Keep the Azure OpenAI key secure and never commit it to version control
 - The API key is loaded from environment variables
-- Database embeddings are stored in JSON format and can be large
+- Database embeddings are stored as pgvector `vector(1536)` values in PostgreSQL
 - Consider implementing authentication for production use
 - The API includes CORS configuration that allows all origins for development
-- The `init-embeddings-write` command requires write access to the database
+- The `init-embeddings-write` command requires read access to MariaDB and write access to PostgreSQL
 - Use environment variables for all sensitive configuration
 - Review and restrict CORS settings before deploying to production
 

@@ -1,5 +1,7 @@
 # Azure Blob Storage Email Import System
 
+> **Current production note (2026-09-01):** The Azure Blob ingestion concept remains applicable, but current IDS persistence is PostgreSQL/pgvector-only for email, thread, and vector data. Qdrant has been removed and MariaDB is only the read-only WooCommerce product source. MariaDB-specific upsert, schema, and troubleshooting examples below describe the earlier implementation; use [Embeddings Quick Start](./EMBEDDINGS_QUICK_START.md) for the current vector-store model.
+
 Complete guide for the Azure Blob Storage + Kubernetes Job email import workflow.
 
 ## Overview
@@ -396,4 +398,3 @@ resources:
 - [Embeddings Quick Start](./EMBEDDINGS_QUICK_START.md) - Vector embeddings system
 - [Kubernetes Operations](../gitops/README.md) - GitOps deployment
 - [Terraform Infrastructure](../terraform/README.md) - Infrastructure as Code
-

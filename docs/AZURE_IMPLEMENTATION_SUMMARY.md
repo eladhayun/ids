@@ -1,5 +1,7 @@
 # Azure Blob Storage Email Import - Implementation Summary
 
+> **Current production note (2026-09-01):** This is a historical implementation summary. IDS now persists email/thread records and all embeddings in PostgreSQL with pgvector; Qdrant has been removed, and MariaDB is only the read-only WooCommerce product source. MariaDB-specific diagrams and SQL below are superseded by [Embeddings Quick Start](./EMBEDDINGS_QUICK_START.md).
+
 **Date**: November 29, 2025  
 **Status**: ✅ COMPLETE
 
@@ -392,4 +394,3 @@ For issues or questions:
 2. Review job logs: `kubectl logs -l app=email-import --context=jshipster`
 3. Check Azure Portal for blob storage issues
 4. Verify secrets are correctly configured in Kubernetes
-

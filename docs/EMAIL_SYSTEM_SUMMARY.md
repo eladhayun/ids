@@ -1,5 +1,7 @@
 # Email Import System - Implementation Summary
 
+> **Current production note (2026-09-01):** This is a historical implementation summary. IDS now stores emails, threads, and all vectors in PostgreSQL with pgvector; Qdrant has been removed, and MariaDB is only the read-only WooCommerce product source. MariaDB JSON-vector and in-memory-search details below are superseded by [Embeddings Quick Start](./EMBEDDINGS_QUICK_START.md).
+
 ## Overview
 
 A complete system has been implemented to import email conversations (EML and MBOX formats) and use them to enhance AI chat responses by learning from past customer interactions.
@@ -499,4 +501,3 @@ For questions or issues:
 3. Examine code comments in source files
 4. Test with small datasets first
 5. Monitor logs for `[EMAIL_EMBEDDINGS]` and `[CHAT_ENHANCED]` tags
-

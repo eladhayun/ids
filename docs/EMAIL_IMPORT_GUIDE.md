@@ -1,5 +1,7 @@
 # Email Import and Context Enhancement Guide
 
+> **Current production note (2026-09-01):** Email and thread records and embeddings are persisted in PostgreSQL with pgvector, which is IDS's sole vector store. Qdrant has been removed; MariaDB remains only the read-only WooCommerce product source. Older MariaDB-oriented storage and verification examples in this guide are historical. See [Embeddings Quick Start](./EMBEDDINGS_QUICK_START.md) for current configuration and operations.
+
 ## Overview
 
 This system allows you to import email conversations (from EML and MBOX files) into the database and use them to enhance chat responses. The AI can learn from past customer interactions to provide better, more contextual answers.
@@ -312,4 +314,3 @@ For issues or questions:
 - Check logs: Look for `[EMAIL_EMBEDDINGS]` and `[CHAT_ENHANCED]` tags
 - Review database: Query the tables to verify data
 - Test individually: Use `-embeddings=false` to isolate issues
-
