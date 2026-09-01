@@ -1,5 +1,7 @@
 # ✅ Email Import System - Implementation Complete
 
+> **Current production note (2026-09-01):** This document records the original email-import implementation. Current production persists email/thread data and `vector(1536)` embeddings in PostgreSQL/pgvector and searches there with HNSW cosine indexes. Qdrant is no longer deployed, and MariaDB is used only as the read-only product-catalog source. See [Embeddings Quick Start](./EMBEDDINGS_QUICK_START.md) for current operations.
+
 ## What Was Built
 
 You asked: *"Is it possible to extract data from EML and MBOX files and store it in the database, and have the code look into similar conversations in the emails so it can answer better?"*
@@ -395,4 +397,3 @@ mariadb -u isrealde_wp654 -p'isrealde_wp654' -D isrealde_wp654 --ssl=false \
 ---
 
 **Need help?** Check the comprehensive guides in the `docs/` folder!
-

@@ -1,5 +1,7 @@
 # Azure Blob Email Import - Quick Start
 
+> **Current production note (2026-09-01):** Current IDS email/thread data and vectors are stored in PostgreSQL with pgvector. Qdrant has been removed; MariaDB is only the read-only WooCommerce product source. The MariaDB database-verification section below is retained for historical context and must not be used to validate current embeddings. See [Embeddings Quick Start](./EMBEDDINGS_QUICK_START.md).
+
 Get up and running with Azure Blob Storage email imports in 5 steps.
 
 ## Prerequisites
@@ -279,4 +281,3 @@ kubectl delete jobs -l app=email-import --context=jshipster
 - Check logs: `kubectl logs -l app=email-import --context=jshipster`
 - View Swagger: http://your-backend-url/swagger/
 - Database: Connect via `kubectl port-forward`
-

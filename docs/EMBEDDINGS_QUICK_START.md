@@ -1,200 +1,126 @@
 # Embeddings Quick Start Guide
 
-## 🎯 Running Embeddings Generation
+## Current Production Architecture
 
-The embeddings system regenerates vector embeddings for all products to improve search relevance.
+As of 2026-09-01, IDS uses PostgreSQL with pgvector as its sole production vector store. Qdrant has been removed from the cluster and production configuration keeps `QDRANT_ENABLED=false` with no `QDRANT_URL`.
 
----
+The data path is:
 
-## 📝 Commands
+1. Read published and private WooCommerce products from the remote, read-only MariaDB database.
+2. Generate 1536-dimensional vectors with the configured Azure OpenAI embedding deployment.
+3. Incrementally upsert product metadata, checksums, and vectors into the `ids_embeddings` PostgreSQL database.
+4. Search product, email, and thread vectors in PostgreSQL using pgvector cosine distance and HNSW indexes.
 
-### **Local Development: Run Once** (Recommended for Dev)
-Regenerates embeddings for ALL products, then exits cleanly.
+## Local Development: Run Once
+
+`make run-embeddings` builds the tool, runs one embedding refresh, and exits:
 
 ```bash
 make run-embeddings
 ```
 
-**What it does:**
-- Loads environment variables from `.env`
-- Builds the embeddings tool if needed
-- Runs full embeddings generation for all products
-- **Exits cleanly after completion** (no Ctrl+C needed)
-- Takes ~30-60 minutes depending on product count
-
-**When to run:**
-- After code changes to embedding logic
-- After deploying search improvements
-- Testing embedding improvements locally
-- When search relevance issues are reported
-
----
-
-### **Production: Scheduled Mode** (For Kubernetes/Docker)
-Runs embeddings generation continuously on a schedule.
+The equivalent direct command is:
 
 ```bash
-./bin/init-embeddings-write
-# OR with explicit flag:
-./bin/init-embeddings-write --once=false
-```
-
-**What it does:**
-- Runs initial embeddings generation
-- **Stays running** and regenerates on schedule (e.g., weekly)
-- Continues even if a generation fails
-- Requires Ctrl+C or SIGTERM to stop
-
-**When to use:**
-- In production Kubernetes deployments
-- In Docker containers with restart policies
-- When you want automatic periodic regeneration
-
----
-
-## 🔧 How It Works
-
-### Command-Line Flags
-
-The embeddings tool supports the following flag:
-
-```bash
---once    Run embeddings generation once and exit (default: false, runs continuously)
-```
-
-**Examples:**
-```bash
-# Run once and exit (for local dev)
+make build-embeddings
 ./bin/init-embeddings-write --once
-
-# Run continuously with scheduler (for production)
-./bin/init-embeddings-write
-
-# View help
-./bin/init-embeddings-write --help
 ```
 
-### Execution Flow
+Use this after embedding-logic changes, when validating search relevance, or when product vectors need an immediate refresh.
 
-1. **Parses command-line flags** - Checks if `--once` is set
-2. **Checks for `.env` file** - Fails gracefully if missing (when using Makefile)
-3. **Loads environment variables** - Exports all variables from `.env`
-4. **Builds the embeddings tool** - If not already built (when using Makefile)
-5. **Runs full generation** - Processes all published products
-6. **Exits or schedules next run** - Depending on `--once` flag
-   - If `--once=true`: Exits cleanly after completion
-   - If `--once=false` (default): Enters scheduler loop and waits for next run
+## Production: Kubernetes CronJob
 
----
+Production does not keep the embedding generator running continuously. The companion GitOps repository defines the `ids-init-embeddings` CronJob, scheduled daily at `00:00 UTC` with `concurrencyPolicy: Forbid`.
 
-## 📋 Environment Variables Required
-
-Your `.env` file should contain:
-
-```bash
-# Database Connection
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=isrealde_wp654
-DB_PASSWORD=isrealde_wp654
-DB_NAME=isrealde_wp654
-
-# OpenAI API
-OPENAI_API_KEY=your_api_key_here
-
-# Embedding Schedule (hours between regenerations)
-EMBEDDING_SCHEDULE_HOURS=168
-```
-
----
-
-## ❗ Troubleshooting
-
-### Error: ".env file not found"
-**Solution:** Make sure you're running from the project root where `.env` exists:
-```bash
-cd /Users/elad/Development/jshipster/ids
-make run-embeddings
-```
-
-### Error: "Failed to connect to database"
-**Solution:** Verify your database credentials in `.env` and that the database is running.
-
-### Error: "OpenAI API error"
-**Solution:** Check that `OPENAI_API_KEY` in `.env` is valid and has sufficient credits.
-
----
-
-## 📊 What Gets Improved
-
-After regenerating with the latest code, products benefit from:
-
-1. **Better Brand Recognition**
-   - "Recover Tactical" automatically detected and boosted
-   - Brand names repeated for higher weight
-
-2. **Synonym Expansion**
-   - dubon → doobon, parka, coat
-   - pix → p-ix, p-ix+
-   - coat → jacket, parka
-
-3. **Variation Keywords**
-   - Product variations analyzed
-   - Unique keywords extracted and included
-
-4. **Boosting System**
-   - Exact title matches: +0.2 similarity boost
-   - Tag matches: +0.25 boost per token
-   - Title token matches: +0.05 boost
-
-5. **Special Product Handling**
-   - P-IX+ products get extra keyword repetition
-   - Recover Tactical brand explicitly added when missing
-   - Product variation keywords extracted
-
----
-
-## 🎯 Summary
-
-### For Local Development:
-```bash
-make run-embeddings
-```
-Runs once and exits cleanly - no Ctrl+C needed!
-
-### For Production (Kubernetes):
-```bash
-./bin/init-embeddings-write
-```
-Runs continuously with automatic scheduling.
-
----
-
-## 🚀 Production Deployment Notes
-
-### Kubernetes Deployment
-Your production deployment should run **without** the `--once` flag to enable continuous scheduling:
+Each job invokes the application image once:
 
 ```yaml
-# Correct for production
-command: ["/app/bin/init-embeddings-write"]
-
-# NOT for production (would exit after first run)
-command: ["/app/bin/init-embeddings-write", "--once"]
+command:
+  - /bin/sh
+  - -c
+  - /home/appuser/init-embeddings-write --once
 ```
 
-The default behavior (no flags) is **production-ready** and will:
-1. Run initial embeddings generation on startup
-2. Continue running and regenerate on schedule (e.g., weekly)
-3. Handle signals gracefully (SIGTERM for pod shutdown)
-4. Restart automatically if the pod crashes (via Kubernetes restart policy)
+The one-shot command is the intended Kubernetes behavior: the Job succeeds and exits, and Kubernetes starts the next run from the CronJob schedule.
 
-### Backwards Compatibility
-✅ **No breaking changes!** Existing production deployments will continue working exactly as before. The default behavior is unchanged.
+The binary still supports its built-in continuous scheduler when run without `--once`, but that mode is not used by the production GitOps deployment.
+
+## Required Configuration
+
+Use secret values appropriate to the environment; never commit real credentials.
+
+```bash
+# Read-only MariaDB/WooCommerce product source
+DATABASE_URL=mysql://username:password@localhost:3306/database_name
+
+# PostgreSQL application and vector store
+EMBEDDINGS_DATABASE_URL=postgres://username:password@localhost:5432/ids_embeddings?sslmode=disable
+
+# Azure OpenAI
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_KEY=your_azure_openai_key_here
+AZURE_OPENAI_GPT_DEPLOYMENT=gpt-4o-mini
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-3-small
+
+# Enable when DATABASE_URL is reached through the SSH sidecar/tunnel
+WAIT_FOR_TUNNEL=false
+
+# PostgreSQL-only production mode
+QDRANT_ENABLED=false
+```
+
+Do not set `QDRANT_URL`. Restoring Qdrant requires a separately reviewed application and infrastructure change; it is not a fallback for normal operation.
+
+## What a Refresh Does
+
+- Enables the PostgreSQL `vector` extension when necessary.
+- Creates the product embedding/checksum tables and HNSW index when necessary.
+- Reads all eligible products from MariaDB.
+- Compares product checksums and regenerates only new or changed product vectors.
+- Stores vectors as PostgreSQL `vector(1536)` values with denormalized search metadata.
+- Leaves email and thread vectors in the same PostgreSQL database; those are populated by the email import workflow.
+
+## Verification
+
+For a local/manual run, confirm the command exits successfully and logs PostgreSQL/pgvector activity without Qdrant initialization or connection messages.
+
+For Kubernetes, use the `jshipster` context and verify the latest CronJob-created Job:
+
+```bash
+kubectl --context jshipster -n ids get cronjob ids-init-embeddings
+kubectl --context jshipster -n ids get jobs --sort-by=.metadata.creationTimestamp
+kubectl --context jshipster -n ids logs job/<job-name> -c init-embeddings
+```
+
+A no-change run is successful when it reads the product catalog, reports zero products needing regeneration, and exits with status 0.
+
+## Troubleshooting
+
+### MariaDB connection fails
+
+- Verify `DATABASE_URL` and read-only credentials.
+- If the database is reached through SSH, verify the tunnel and set `WAIT_FOR_TUNNEL=true`.
+
+### PostgreSQL or pgvector setup fails
+
+- Verify `EMBEDDINGS_DATABASE_URL` points to the IDS PostgreSQL database.
+- Confirm the role can create/use the `vector` extension, tables, and indexes and can upsert rows.
+- Check PostgreSQL capacity and PVC health in the cluster.
+
+### Azure OpenAI fails
+
+- Verify `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, and the embedding deployment name.
+- Check quota and request-timeout errors before retrying a full refresh.
+
+### Qdrant appears in logs
+
+- Production should have `QDRANT_ENABLED=false` and no `QDRANT_URL`.
+- Treat an attempted Qdrant connection as configuration drift and correct the GitOps configuration.
 
 ---
 
-**Created:** November 19, 2025  
-**Updated:** November 19, 2025  
-**For:** IDS API Project  
-**Purpose:** Improve product search relevance
+**Created:** November 19, 2025
+
+**Updated:** September 1, 2026
+
+**Purpose:** Operate IDS embeddings with PostgreSQL/pgvector as the sole production vector store
