@@ -64,8 +64,8 @@ func New(cfg *config.Config, db *sqlx.DB, logger zerolog.Logger) *Server {
 		} else {
 			logger.Info().Msg("Embedding service initialized successfully (PostgreSQL for search, MariaDB for generation)")
 
-			// Initialize Qdrant client for search if configured
-			if cfg.QdrantURL != "" {
+			// Initialize Qdrant only when the optional integration is explicitly enabled.
+			if cfg.QdrantEnabled && cfg.QdrantURL != "" {
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
 
@@ -77,12 +77,8 @@ func New(cfg *config.Config, db *sqlx.DB, logger zerolog.Logger) *Server {
 					_ = qdrantClient.Close()
 					qdrantClient = nil
 				} else {
-					embeddingService.SetQdrantClient(qdrantClient, cfg.QdrantEnabled)
-					if cfg.QdrantEnabled {
-						logger.Info().Str("url", cfg.QdrantURL).Msg("Qdrant search enabled")
-					} else {
-						logger.Info().Str("url", cfg.QdrantURL).Msg("Qdrant client initialized but search disabled (dual-write enabled)")
-					}
+					embeddingService.SetQdrantClient(qdrantClient, true)
+					logger.Info().Str("url", cfg.QdrantURL).Msg("Qdrant search enabled")
 				}
 			}
 		}

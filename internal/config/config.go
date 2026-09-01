@@ -76,8 +76,8 @@ func Load() *Config {
 		AdminPassword: os.Getenv("ADMIN_PASSWORD"), // Admin password for session viewing
 
 		// Qdrant
-		QdrantURL:     getEnv("QDRANT_URL", "ids-qdrant:6334"), // Default to in-cluster service
-		QdrantEnabled: getEnvBool("QDRANT_ENABLED", false),     // Feature flag for Qdrant search reads
+		QdrantURL:     os.Getenv("QDRANT_URL"),             // Optional; empty keeps IDS PostgreSQL-only
+		QdrantEnabled: getEnvBool("QDRANT_ENABLED", false), // Feature flag for Qdrant reads and writes
 	}
 
 	return config
