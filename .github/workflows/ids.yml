@@ -20,7 +20,7 @@ on:
 jobs:
   test:
     name: Test and Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     steps:
@@ -75,7 +75,7 @@ jobs:
 
   build-and-push:
     name: Build and Push Docker Image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
@@ -109,7 +109,7 @@ jobs:
 
   update-gitops:
     name: Update GitOps Repository
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build-and-push
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
@@ -139,7 +139,7 @@ jobs:
 
   notify-slack:
     name: Notify Slack
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [test, build-and-push, update-gitops]
     if: ${{ always() }}
     steps:
