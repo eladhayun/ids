@@ -120,14 +120,25 @@ jobs:
     name: Update GitOps Repository
     runs-on: ubuntu-24.04
     needs: build-and-push
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && (github.event_name == 'push' && github.ref == 'refs/heads/main')
 
+    permissions:
+      contents: read
     steps:
+      - name: Short-lived GitOps promotion token
+        id: gitops_token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0, Node 24
+        with:
+          client-id: ${{ vars.GITOPS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.GITOPS_APP_PRIVATE_KEY }}
+          owner: jshipster-io
+          repositories: gitops
+          permission-contents: write
       - name: Checkout GitOps repository
         uses: actions/checkout@v5
         with:
           repository: ${{ github.repository_owner }}/gitops
-          token: ${{ secrets.GITOPS_PAT }}
+          token: ${{ steps.gitops_token.outputs.token }}
           path: gitops
 
       - name: Update image tag in deployment
@@ -144,8 +155,12 @@ jobs:
           git config user.email "actions@github.com"
           git add .
           git commit -m "Update IDS image to ${GITHUB_SHA::7}" || echo "No changes to commit"
-          git push
-
+          for attempt in 1 2 3 4 5; do
+            git pull --rebase origin main
+            if git push origin HEAD:main; then exit 0; fi
+            sleep "$attempt"
+          done
+          exit 1
   notify-slack:
     name: Notify Slack
     runs-on: ubuntu-24.04
